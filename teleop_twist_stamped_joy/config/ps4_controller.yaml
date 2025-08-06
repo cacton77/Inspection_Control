@@ -1,0 +1,28 @@
+# PS4 Controller Configuration for TeleopTwistStampedJoy
+teleop_twist_stamped_joy:
+  ros__parameters:
+    # Publishing rate (Hz)
+    publish_rate: 50.0
+    
+    # Scaling factors
+    linear_scale: 0.1      # Max linear velocity (m/s)
+    angular_scale: 0.1     # Max angular velocity (rad/s)
+    
+    # PS4 Controller mapping
+    linear_axis: 1         # Left stick vertical (forward/backward)
+    angular_axis: 0        # Left stick horizontal (turn left/right)
+    enable_button: 0       # X button (safety/enable)
+    turbo_button: 1        # Circle button (turbo mode)
+    
+    # Turbo mode settings
+    turbo_scale: 2.5       # Multiplier when turbo is active
+    
+    # Deadzone to prevent drift
+    deadzone: 0.05
+    
+    # Frame ID for the twist messages
+    frame_id: "eoat_camera_link"
+    
+    # Topic names
+    joy_topic: "joy"
+    twist_topic: "cmd_vel_stamped"
