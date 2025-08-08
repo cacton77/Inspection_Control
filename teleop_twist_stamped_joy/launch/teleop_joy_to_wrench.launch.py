@@ -32,6 +32,13 @@ def generate_launch_description():
         'config', 
         LaunchConfiguration('config_file2')
     ])    
+
+   # joy_node = Node(
+     #   package='joy',
+       # executable="joy_node",
+      #  name='joy'
+    #)
+
     # Teleop node
     teleop_node = Node(
         package='teleop_twist_stamped_joy',

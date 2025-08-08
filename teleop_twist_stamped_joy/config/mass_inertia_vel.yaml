@@ -2,38 +2,22 @@
 wrench_to_twist:
   ros__parameters:
     # Publishing rate (Hz)
-    publish_rate: 50.0
+    publish_rate: 10.0
     
     # Scaling factors
    # force_scale: 1.0      # Max linear velocity (m/s)
     #torque_scale: 1.0     # Max angular velocity (rad/s)
-    mass: 10
-    inertia_x: 2
-    inertia_y: 2
-    inertia_z: 2
-    linear_vel_x: 0
-    linear_vel_y: 0
-    linear_vel_z: 0
-    angular_vel_x: 0
-    angular_vel_y: 0
-    angular_vel_z: 0
-
-   # x_axis: 0         # Camera pan left/right (Stick X)
-   # y_axis: 1         # Camera pan up/down (Stick Z)
-  #  z_axis_up: 5         # Camera push (Stick Y)
-   # z_axis_down: 2         # Camera pull (Stick Y)
-   # roll_axis_positive: 3        # Camera roll along positive Z-axis
-  #  roll_axis_negative: 0         # Camera roll along negative Z-axis
-   # pitch_axis: 3       # Camera pitch along X-axis
-   # yaw_axis: 4         # Camera yaw along Y-axis
-   # enable_button: -1       # Safety button to enable/disable control (-1 fr no safety button)
-
-   # invert_x: true    # Invert X-axis (left/right)
-   # invert_y: false   # Invert Y-axis (up/down)
-   # invert_z: false   # Invert Z-axis (push/pull)
-            
-    # Deadzone to prevent drift (Xbox controllers typically need higher deadzone)
-   # deadzone: 0.05
+    mass: 10.0
+    inertia_x: 2.0
+    inertia_y: 2.0
+    inertia_z: 2.0
+    linear_drag_x: 50.0
+    linear_drag_y: 50.0
+    linear_drag_z: 50.0
+    rotational_drag_x: 50.0
+    rotational_drag_y: 50.0
+    rotational_drag_z: 50.0
+  
     
     # Frame ID for the twist messages
     frame_id: "eoat_camera_link"

@@ -14,9 +14,9 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
 from sensor_msgs.msg import Joy
-from geometry_msgs.msg import Wrench
-#from std_msgs.msg import Header
-
+from geometry_msgs.msg import WrenchStamped
+from std_msgs.msg import Header
+from rclpy.time import Time
 import math
 
 
@@ -84,7 +84,7 @@ class TeleopJoytoWrench(Node):
         
         # Publishers and subscribers
         self.wrench_pub = self.create_publisher(
-            Wrench, 
+            WrenchStamped, 
             twist_topic, 
             qos_profile
         )
@@ -98,8 +98,8 @@ class TeleopJoytoWrench(Node):
         
         # Internal state
         self.last_joy_msg = None
-        self.current_wrench = Wrench()
-        #self.current_twist.header.frame_id = self.frame_id
+        self.current_wrench = WrenchStamped()
+        self.current_wrench.header.frame_id = self.frame_id
         
         # Create timer for fixed-rate publishing
         timer_period = 1.0 / self.publish_rate  # seconds
@@ -119,13 +119,13 @@ class TeleopJoytoWrench(Node):
         # Check if enable button is pressed (safety feature) or if button is not configured
         if not msg.buttons[self.enable_button] and self.enable_button >= 0:
             # Enable button not pressed - stop the robot
-            self.current_wrench.force.x = 0.0
-            self.current_wrench.force.y = 0.0
-            self.current_wrench.force.z = 0.0
+            self.current_wrench.wrench.force.x = 0.0
+            self.current_wrench.wrench.force.y = 0.0
+            self.current_wrench.wrench.force.z = 0.0
            # self.current_wrench.force.z_pull = 0.0
-            self.current_wrench.torque.x = 0.0
-            self.current_wrench.torque.y = 0.0
-            self.current_wrench.torque.z = 0.0
+            self.current_wrench.wrench.torque.x = 0.0
+            self.current_wrench.wrench.torque.y = 0.0
+            self.current_wrench.wrench.torque.z =0.0
             #self.current_wrench.torque.z_negative= 0.0
             return
         
@@ -169,15 +169,18 @@ class TeleopJoytoWrench(Node):
         ty = ty_filtered * self.torque_scale
         
         # Update twist message
-        self.current_wrench.force.x = fx 
-        self.current_wrench.force.y = fy 
-        self.current_wrench.force.z = fz 
+        self.current_wrench.wrench.force.x = fx 
+        self.current_wrench.wrench.force.y = fy 
+        self.current_wrench.wrench.force.z = fz 
         #self.current_wrench.force.z_pull=fz_pull
         #self.current_wrench.torque.z_negative= tr_negative
         #self.current_wrench.force.z = vz if not self.invert_z else -vz
-        self.current_wrench.torque.z = tr 
-        self.current_wrench.torque.x = tp 
-        self.current_wrench.torque.y = ty 
+        self.current_wrench.wrench.torque.z = tr 
+        self.current_wrench.wrench.torque.x = tp 
+        self.current_wrench.wrench.torque.y = ty 
+
+        self.current_wrench.header.stamp = msg.header.stamp
+
         #self.current_twist.twist.angular.z = wr if not self.invert_z else -wr
         
     def apply_deadzone(self, value):

@@ -22,19 +22,30 @@ class TeleopNode(Node):
         self.get_logger().info('Joystick → Wrench mapping node started.')
     #def listener_callback(self, msg):
       #  self.get_logger().info(f'Buttons: {msg.buttons}, Axes: {msg.axes}')
-    def apply_deadzone(self,value, threshold):
-        return value if abs(value) >= threshold else 0.0  
-
+    def apply_deadzone(self,value):
+        #return value if abs(value) >= threshold else 0.0  
+        if abs(value) < 0.05:
+            return 0.0
+        else:
+            #return value
+    #def apply_normalize(self,value):   
+        # Scale the remaining range to 0-1
+   # def apply_normalize(self, value):
+             if value > 0:
+               return (value - 0.05) / (1.0 - 0.05)
+             else:
+               return (value + 0.05) / (1.0 - 0.05)
     def convert_joy_to_wrench(self, msg):
         wrench = Wrench()
 
         # Map left stick to linear forces
-        wrench.force.x = self.apply_deadzone(msg.axes[0] * 1.0 , 0.3) # Left/right → force in x
-        wrench.force.y = self.apply_deadzone(msg.axes[1] * 1.0 , 0.3)  # Forward/backward → force in y
+        wrench.force.x = self.apply_deadzone(msg.axes[0] * -1.0) # Left/right → force in x
+
+        wrench.force.y = self.apply_deadzone(msg.axes[1] * 1.0)  # Forward/backward → force in y
 
         # Map right stick to torques
-        wrench.torque.x = self.apply_deadzone(msg.axes[3] * 1.0, 0.2)  # Right stick L/R → torque around x
-        wrench.torque.y = self.apply_deadzone(msg.axes[4] * 1.0, 0.2)  # Right stick U/D → torque around y
+        wrench.torque.x = self.apply_deadzone(msg.axes[3] * -1.0)  # Right stick L/R → torque around x
+        wrench.torque.y = self.apply_deadzone(msg.axes[4] * 1.0)  # Right stick U/D → torque around y
 
         # Optional: trigger button to add force in z
         #if len(msg.axes) > 2:
@@ -42,15 +53,15 @@ class TeleopNode(Node):
         lt_val = msg.axes[2] if len(msg.axes) > 2 else 1.0  # 1 → -1
         rt_val = msg.axes[5] if len(msg.axes) > 5 else 1.0  # 1 → -1
 
-        up_force = (1.0 - lt_val) / 2.0 * 1.0   # Scales to [0 → 5]
-        down_force = (1.0 - rt_val) / 2.0 * 1.0 # Scales to [0 → 5]
+        up_force = (1.0 - rt_val) / 2.0 * 1.0   # Scales to [0 → 5]
+        down_force = (1.0 - lt_val) / 2.0 * 1.0 # Scales to [0 → 5]
 
-        wrench.force.z = self.apply_deadzone(up_force - down_force, 0.3)  # Net z force: up - down
+        wrench.force.z = self.apply_deadzone(up_force - down_force)  # Net z force: up - down
         # Optional: button 0 adds torque in z
         if len(msg.buttons) > 1:
-                if msg.buttons[0]:  # A
+                if msg.buttons[3]:  # A
                     wrench.torque.z = 1.0
-                elif msg.buttons[1]:  # B
+                elif msg.buttons[0]:  # B
                     wrench.torque.z = -1.0
         return wrench
 

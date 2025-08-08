@@ -2,11 +2,11 @@
 teleop_joy_to_wrench:
   ros__parameters:
     # Publishing rate (Hz)
-    publish_rate: 50.0
+    publish_rate: 10.0
     
     # Scaling factors
-    force_scale: 1.0      # Max linear velocity (m/s)
-    torque_scale: 1.0     # Max angular velocity (rad/s)
+    force_scale: 50.0      # Max linear velocity (m/s)
+    torque_scale: 50.0     # Max angular velocity (rad/s)
     
     x_axis: 0         # Camera pan left/right (Stick X)
     y_axis: 1         # Camera pan up/down (Stick Z)
