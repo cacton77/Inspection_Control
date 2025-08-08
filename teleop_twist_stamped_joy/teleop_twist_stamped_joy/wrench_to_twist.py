@@ -3,7 +3,7 @@
 """
 ROS2 Wrench Twist Node
 
-Translates geometry_msgs/Wrench messages to geometry_msgs/TwistStamped messages
+Translates geometry_msgs/Wrench messages to geometry_msgs/TwistStamped message
 and publishes them at a fixed rate.
 
 Author: Assistant
