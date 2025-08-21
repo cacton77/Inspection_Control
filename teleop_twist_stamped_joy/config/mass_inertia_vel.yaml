@@ -24,4 +24,4 @@ wrench_to_twist:
     
     # Topic names
     wrench_topic: "teleop_force_threshold"
-    twist_topic: "/inspection_cell/servo_node/delta_twist_cmds"  # Updated topic for inspection cell
+    twist_topic: "/servo_node/delta_twist_cmds"  # Updated topic for inspection cell
