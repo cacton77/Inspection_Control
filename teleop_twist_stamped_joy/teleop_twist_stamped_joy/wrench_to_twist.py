@@ -156,17 +156,21 @@ class WrenchtoTwist(Node):
         self.last_time = current_time
 
         # Update linear velocity: v = v0 + (F/m) * dt
-        self.forces = [msg.wrench.force.x -self.D_lin[0] * self.linear_vel[0], msg.wrench.force.y -self.D_lin[1] * self.linear_vel[1], msg.wrench.force.z -self.D_lin[2] * self.linear_vel[2]]
+        self.forces = [msg.wrench.force.x -self.D_lin[0] * self.linear_vel[0], 
+                       msg.wrench.force.y -self.D_lin[1] * self.linear_vel[1], 
+                       msg.wrench.force.z -self.D_lin[2] * self.linear_vel[2]]
+        #print(self.forces)
         for i in range(3):
             self.acceleration = self.forces[i] / self.mass
             self.linear_vel[i] += self.acceleration * dt
 
         # Update angular velocity: w = w0 + (τ/I) * dt
-        self.torques = [msg.wrench.torque.x-self.D_rot[0] * self.angular_vel[0], msg.wrench.torque.y-self.D_rot[1] * self.angular_vel[1], msg.wrench.torque.z-self.D_rot[2] * self.angular_vel[2]]
+        self.torques = [msg.wrench.torque.x - self.D_rot[0]*self.angular_vel[0], msg.wrench.torque.y - self.D_rot[1]*self.angular_vel[1], msg.wrench.torque.z- self.D_rot[2]*self.angular_vel[2]]
+       
         for i in range(3):
             self.angular_acc = self.torques[i] / self.inertia[i]
             self.angular_vel[i] += self.angular_acc * dt
-    
+        print(self.angular_vel)
         # Update twist message
         self.current_twist.twist.linear.x = round(self.linear_vel[0], 3)
         self.current_twist.twist.linear.y = round(self.linear_vel[1],3)
@@ -174,7 +178,7 @@ class WrenchtoTwist(Node):
         self.current_twist.twist.angular.x = round(self.angular_vel[0],3)
         self.current_twist.twist.angular.y = round(self.angular_vel[1],3)
         self.current_twist.twist.angular.z = round(self.angular_vel[2],3)
-        #self.current_twist.twist.angular.z = wr if not self.invert_z else -wr
+       # self.current_twist.twist.angular.z = wr if not self.invert_z else -wr
         self.wrench_received = True
         
     

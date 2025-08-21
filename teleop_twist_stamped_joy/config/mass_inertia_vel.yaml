@@ -8,9 +8,9 @@ wrench_to_twist:
    # force_scale: 1.0      # Max linear velocity (m/s)
     #torque_scale: 1.0     # Max angular velocity (rad/s)
     mass: 10.0
-    inertia_x: 2.0
-    inertia_y: 2.0
-    inertia_z: 2.0
+    inertia_x: 10.0
+    inertia_y: 10.0
+    inertia_z: 10.0
     linear_drag_x: 50.0
     linear_drag_y: 50.0
     linear_drag_z: 50.0
@@ -24,4 +24,4 @@ wrench_to_twist:
     
     # Topic names
     wrench_topic: "teleop_force_threshold"
-    twist_topic: "/servo_node/delta_twist_cmds"  # Updated topic for inspection cell
+    twist_topic: "/inspection_cell/servo_node/delta_twist_cmds"  # Updated topic for inspection cell
