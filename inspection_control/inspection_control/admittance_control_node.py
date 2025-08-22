@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-ROS2 Wrench Twist Node
-
-Translates geometry_msgs/Wrench messages to geometry_msgs/TwistStamped message
-and publishes them at a fixed rate.
-
-Author: Assistant
-"""
-
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy

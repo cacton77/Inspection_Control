@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-ROS2 Teleop Wrench Joy Node
-
-Translates sensor_msgs/Joy messages to geometry_msgs/Wrench messages
-and publishes them at a fixed rate.
-
-Author: Assistant
-"""
-
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
