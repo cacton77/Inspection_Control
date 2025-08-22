@@ -1,25 +1,31 @@
 # Space Mouse Configuration for TeleopTwistStampedJoy
-teleop_twist_stamped_joy:
+teleop:
   ros__parameters:
     # Publishing rate (Hz)
-    publish_rate: 50.0
+    publish_rate: 10.0
     
     # Scaling factors
-    linear_scale: 1.0      # Max linear velocity (m/s)
-    angular_scale: 1.0     # Max angular velocity (rad/s)
+    force_scale: 50.0      # Max linear velocity (m/s)
+    torque_scale: 50.0     # Max angular velocity (rad/s)
     
     x_axis: 0         # Camera pan left/right (Stick X)
     y_axis: 2         # Camera pan up/down (Stick Z)
     z_axis: 1         # Camera push/pull (Stick Y)
-    roll_axis: 4        # Camera roll along Z-axis
+    z_axis_push: -1
+    z_axis_pull: -1
+    roll_axis_positive: 1       # Camera roll along positive Z-axis
+    roll_axis_negative: 0       # Camera roll along negative Z-axis
     pitch_axis: 3       # Camera pitch along X-axis
     yaw_axis: 5         # Camera yaw along Y-axis
     enable_button: -1       # Safety button to enable/disable control (-1 fr no safety button)
 
     invert_x: true    # Invert X-axis (left/right)
-    invert_y: false   # Invert Y-axis (up/down)
+    invert_y: true    # Invert Y-axis (up/down)
     invert_z: false   # Invert Z-axis (push/pull)
-            
+    invert_roll: false # Invert roll axis (clockwise/counter-clockwise)
+    invert_pitch: true # Invert pitch axis (up/down)
+    invert_yaw: true # Invert yaw axis (left/right)
+
     # Deadzone to prevent drift (Xbox controllers typically need higher deadzone)
     deadzone: 0.05
     
@@ -27,5 +33,5 @@ teleop_twist_stamped_joy:
     frame_id: "eoat_camera_link"
     
     # Topic names
-    joy_topic: "joy"
-    twist_topic: "/inspection_cell/servo_node/delta_twist_cmds"  # Updated topic for inspection cell
+    joy_topic: "/joy"
+    twist_topic: "/teleop/wrench_cmds"  # Updated topic for inspection cell

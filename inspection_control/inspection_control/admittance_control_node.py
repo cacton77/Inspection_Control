@@ -1,92 +1,202 @@
+#!/usr/bin/env python3
+
+"""
+ROS2 Wrench Twist Node
+
+Translates geometry_msgs/Wrench messages to geometry_msgs/TwistStamped message
+and publishes them at a fixed rate.
+
+Author: Assistant
+"""
+
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Wrench, Twist
-from rclpy.time import Time
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+
+# from sensor_msgs.msg import Joy
+from geometry_msgs.msg import WrenchStamped, TwistStamped
 from std_srvs.srv import Trigger
+
+import math
 
 
 class AdmittanceControlNode(Node):
+    """
+    Node that converts Wrench messages to Twiststamped messages with fixed-rate publishing.
+    """
+
     def __init__(self):
-        super().__init__('admittance_control_node')
-        self.subscription = self.create_subscription(
-            Wrench,
-            'teleop_force_threshold',  # topic name
-            self.wrench_callback,
-            10  # QoS
+        super().__init__('admittance_control')
+
+        # Declare parameters
+        self.declare_parameters(
+            namespace='',
+            parameters=[
+                ('publish_rate', 50.0),  # Hz
+                ('mass', 5.0),  # Hz
+                ('inertia_x', 5.0),  # Hz
+                ('inertia_y', 5.0),  # Hz
+                ('inertia_z', 5.0),  # Hz
+                ('linear_drag_x', 1.0),
+                ('linear_drag_y', 1.0),
+                ('linear_drag_z', 1.0),
+                ('rotational_drag_x', 2.0),
+                ('rotational_drag_y', 2.0),
+                ('rotational_drag_z', 2.0),
+                #  ('enable_button', 0),  # Safety button to enable/disable control
+                ('frame_id', 'eoat_camera_link'),  # Frame ID for TwistStamped
+                # Topic for incoming Joy messages
+                ('wrench_topic', '/teleop/wrench_cmds'),
+                # Topic for outgoing TwistStamped messages
+                ('twist_topic', '/servo_node/delta_twist_cmds')
+            ]
         )
-        self.publisher = self.create_publisher(Twist,'/inspection_cell/servo_node/delta_twist_cmds', 10)
-        
-       # self.cli = self.create_client(Trigger, '/inspection_cell/servo_node/start_servo')
-      #  while not self.cli.wait_for_service(timeout_sec=1.0):
-        #    self.get_logger().info('service not available, waiting again...')
-      #  self.req = Trigger.Request()
-      #  self.cli.call_async(self.req)
 
+        # Get parameters
+        self.publish_rate = self.get_parameter(
+            'publish_rate').get_parameter_value().double_value
+        self.mass = self.get_parameter(
+            'mass').get_parameter_value().double_value
+        inertia_x = self.get_parameter(
+            'inertia_x').get_parameter_value().double_value
+        inertia_y = self.get_parameter(
+            'inertia_y').get_parameter_value().double_value
+        inertia_z = self.get_parameter(
+            'inertia_z').get_parameter_value().double_value
+        self.D_lin = [
+            self.get_parameter(
+                'linear_drag_x').get_parameter_value().double_value,
+            self.get_parameter(
+                'linear_drag_y').get_parameter_value().double_value,
+            self.get_parameter(
+                'linear_drag_z').get_parameter_value().double_value
+        ]
+        self.D_rot = [
+            self.get_parameter(
+                'rotational_drag_x').get_parameter_value().double_value,
+            self.get_parameter(
+                'rotational_drag_y').get_parameter_value().double_value,
+            self.get_parameter(
+                'rotational_drag_z').get_parameter_value().double_value
+        ]
 
-        timer_period = 0.02  # seconds
-        self.timer = self.create_timer(timer_period, self.force_timer_callback)
+        self.frame_id = self.get_parameter(
+            'frame_id').get_parameter_value().string_value
+        wrench_topic = self.get_parameter(
+            'wrench_topic').get_parameter_value().string_value
+        twist_topic = self.get_parameter(
+            'twist_topic').get_parameter_value().string_value
+
+        # QoS profile for reliable communication
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            depth=10
+        )
+
+        # Publishers and subscribers
+        self.twist_pub = self.create_publisher(
+            TwistStamped,
+            twist_topic,
+            qos_profile
+        )
+
+        self.joy_sub = self.create_subscription(
+            WrenchStamped,
+            wrench_topic,
+            self.wrench_callback,
+            qos_profile
+        )
+
+        self.linear_vel = [0., 0., 0.]
+        self.inertia = [inertia_x, inertia_y, inertia_z]
+        self.angular_vel = [0., 0., 0.]
+
         self.wrench_received = False
 
-        # Physical parameters
-        self.mass = 10.0  # kg
-        self.inertia = [2.0, 2.0, 2.0]  # moment of inertia around x, y, z axes (Nm·s²)
+        # Internal state
+       # self.last_wrench_msg = None
+        self.current_twist = TwistStamped()
+        self.current_twist.header.frame_id = self.frame_id
+        # self.last_time = self.get_clock().now()
+        self.last_time = None
+        # Create timer for fixed-rate publishing
+        timer_period = 1.0 / self.publish_rate  # seconds
+        self.timer = self.create_timer(timer_period, self.publish_twist)
 
-        # Current velocities
-        self.linear_vel = [0.0, 0.0, 0.0]
-        self.angular_vel = [0.0, 0.0, 0.0]
+        # Log startup info
+        self.get_logger().info(f'Admittance control node started')
+        self.get_logger().info(f'Publishing twists at {self.publish_rate} Hz')
 
-          # Time tracking
-        self.last_time = self.get_clock().now()
+    def wrench_callback(self, msg):
+        """
+        Process incoming Joy messages and update wrench command.
+        """
+        current_time = msg.header.stamp
 
-        self.get_logger().info("Physics-based Wrench-to-Twist node started.")
-
-    def wrench_to_twist(self, msg):
-        current_time = self.get_clock().now()
-        dt = (current_time - self.last_time).nanoseconds * 1e-9  # seconds
-        self.last_time = current_time
-
-        if dt == 0:
+        if not self.last_time:
+            self.last_time = current_time
             return
 
+        self.last_wrench_msg = msg
+
+        dt = (current_time.sec - self.last_time.sec) + 1e-9 * \
+            (current_time.nanosec - self.last_time.nanosec)
+
+        self.last_time = current_time
+
         # Update linear velocity: v = v0 + (F/m) * dt
-        forces = [msg.force.x, msg.force.y, msg.force.z]
+        self.forces = [msg.wrench.force.x - self.D_lin[0] * self.linear_vel[0],
+                       msg.wrench.force.y - self.D_lin[1] * self.linear_vel[1],
+                       msg.wrench.force.z - self.D_lin[2] * self.linear_vel[2]]
+        # print(self.forces)
         for i in range(3):
-            acceleration = forces[i] / self.mass
-            self.linear_vel[i] += acceleration * dt
+            self.acceleration = self.forces[i] / self.mass
+            self.linear_vel[i] += self.acceleration * dt
 
         # Update angular velocity: w = w0 + (τ/I) * dt
-        torques = [msg.torque.x, msg.torque.y, msg.torque.z]
+        self.torques = [msg.wrench.torque.x - self.D_rot[0]*self.angular_vel[0], msg.wrench.torque.y -
+                        self.D_rot[1]*self.angular_vel[1], msg.wrench.torque.z - self.D_rot[2]*self.angular_vel[2]]
+
         for i in range(3):
-            angular_acc = torques[i] / self.inertia[i]
-            self.angular_vel[i] += angular_acc * dt
+            self.angular_acc = self.torques[i] / self.inertia[i]
+            self.angular_vel[i] += self.angular_acc * dt
 
-        #  Create Twist message
-        twist = Twist()
-        twist.linear.x, twist.linear.y, twist.linear.z = self.linear_vel
-        twist.angular.x, twist.angular.y, twist.angular.z = self.angular_vel
-        return twist
-
-    def wrench_callback(self,msg):
-        self.latest_twist = self.wrench_to_twist(msg)
+        # Update twist message
+        self.current_twist.twist.linear.x = round(self.linear_vel[0], 3)
+        self.current_twist.twist.linear.y = round(self.linear_vel[1], 3)
+        self.current_twist.twist.linear.z = round(self.linear_vel[2], 3)
+        self.current_twist.twist.angular.x = round(self.angular_vel[0], 3)
+        self.current_twist.twist.angular.y = round(self.angular_vel[1], 3)
+        self.current_twist.twist.angular.z = round(self.angular_vel[2], 3)
+       # self.current_twist.twist.angular.z = wr if not self.invert_z else -wr
         self.wrench_received = True
-    
-    def force_timer_callback(self): 
-        if self.wrench_received:
-          self.publisher.publish(self.latest_twist)
 
-        #self.get_logger().info(
-           # f"Δt: {dt:.3f}s | v: {self.linear_vel} | ω: {self.angular_vel}"
-        #)
+    def publish_twist(self):
+        """
+        Publish TwistStamped message at fixed rate.
+        """
+        # Publish the message
+        if self.wrench_received:
+            self.current_twist.header.stamp = self.get_clock().now().to_msg()
+            self.twist_pub.publish(self.current_twist)
+
 
 def main(args=None):
+    """Main entry point."""
     rclpy.init(args=args)
-    node = AdmittanceControlNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+        node = AdmittanceControlNode()
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
-
-
-

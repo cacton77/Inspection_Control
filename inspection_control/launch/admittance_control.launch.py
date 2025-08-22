@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description():
+    """Generate launch description for teleop_twist_stamped_joy node."""
+
+    # Launch arguments
+    teleop_config_file = DeclareLaunchArgument(
+        'teleop_config_file',
+        default_value='xbox_controller.yaml',
+        description='Name of controller configuration file'
+    )
+    admittance_config_file = DeclareLaunchArgument(
+        'admittance_config_file',
+        default_value='admittance_control.yaml',
+        description='Name of controller configuration file'
+    )
+
+    teleop_config = PathJoinSubstitution([
+        FindPackageShare('inspection_control'),
+        'config',
+        LaunchConfiguration('teleop_config_file')
+    ])
+    admittance_control_config = PathJoinSubstitution([
+        FindPackageShare('inspection_control'),
+        'config',
+        LaunchConfiguration('admittance_config_file')
+    ])
+
+   # joy_node = Node(
+    #   package='joy',
+    # executable="joy_node",
+    #  name='joy'
+    # )
+
+    # Teleop node
+    teleop_node = Node(
+        package='inspection_control',
+        executable='teleop',
+        name='teleop',
+        parameters=[teleop_config],
+        output='screen',
+        emulate_tty=True
+    )
+    admittance_control_node = Node(
+        package='inspection_control',
+        executable='admittance_control',
+        name='admittance_control',
+        parameters=[admittance_control_config],
+        output='screen',
+        emulate_tty=True
+    )
+    return LaunchDescription([
+        teleop_config_file,
+        admittance_config_file,
+        teleop_node,
+        admittance_control_node,
+    ])
