@@ -14,6 +14,7 @@
   <depend>numpy</depend>
   <depend>open3d</depend>
   <depend>opencv-python</depend>
+  <depend>geometry_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
