@@ -52,26 +52,26 @@ def _pca_plane_normal(pts_np: np.ndarray):
 
 
 def _quaternion_from_z(normal: np.ndarray) -> Quaternion:
-    """Quaternion aligning +Z axis with 'normal' (xyzw)."""
-    z = normal / (LA.norm(normal) + 1e-12)
-    tmp = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-    if abs(np.dot(tmp, z)) > 0.9:
-        tmp = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    x = np.cross(tmp, z); x /= (LA.norm(x) + 1e-12)
+   # """Quaternion aligning +Z axis with 'normal' (xyzw)."""
+#    z = normal / (LA.norm(normal) + 1e-12)
+  #  tmp = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+   # if abs(np.dot(tmp, z)) > 0.9:
+   #     tmp = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+  #  x = np.cross(tmp, z); x /= (LA.norm(x) + 1e-12)
+  #  y = np.cross(z, x)
+  #  R = np.stack([x, y, z], axis=1)
+
+    z = normal / LA.norm(normal)
+    up = np.array([0, 1, 0])
+    if np.array_equal(z, up):
+       x = np.array([1, 0, 0])
+    elif np.array_equal(z, -up):
+         x = np.array([-1, 0, 0])
+    else:
+         x = np.cross(up, z)
+         x /= LA.norm(x)
     y = np.cross(z, x)
     R = np.stack([x, y, z], axis=1)
-
-    # z_hat = normal / LA.norm(normal)
-    # up = np.array([0, 1, 0])
-    # if z_hat == up:
-    #     x_hat = np.array([1, 0, 0])
-    # elif z_hat == -up:
-    #     x_hat = np.array([-1, 0, 0])
-    # else:
-    #     x_hat = np.cross(up, z_hat)
-    #     x_hat /= LA.norm(x_hat)
-    # y_hat = np.cross(z_hat, x_hat)
-    # R = np.stack([x_hat, y_hat, z_hat], axis=1)
 
 
     t = np.trace(R)
