@@ -24,6 +24,7 @@ setup(
             'depth_bg_remove= realsense_inspection.depthmap_filter:main',
             'depthfilterandpointcloud= realsense_inspection.depthfilterandpointcloud:main',
             'normal_estimator= realsense_inspection.normalestimation:main',
+            'pointcloudtransform = realsense_inspection.pointcloudtransform:main',
         ],
     },
 )

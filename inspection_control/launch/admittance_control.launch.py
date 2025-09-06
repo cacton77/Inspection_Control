@@ -33,11 +33,11 @@ def generate_launch_description():
         LaunchConfiguration('admittance_config_file')
     ])
 
-   # joy_node = Node(
-    #   package='joy',
-    # executable="joy_node",
-    #  name='joy'
-    # )
+    joy_node = Node(
+        package='joy',
+        executable="joy_node",
+        name='joy'
+    )
 
     # Teleop node
     teleop_node = Node(
@@ -57,6 +57,7 @@ def generate_launch_description():
         emulate_tty=True
     )
     return LaunchDescription([
+        joy_node,
         teleop_config_file,
         admittance_config_file,
         teleop_node,

@@ -63,7 +63,7 @@ class DepthBGRemove(Node):
         self.declare_parameter('viz_enable', True)
         self.declare_parameter('publish_pointcloud', True)
         self.declare_parameter('cloud_stride', 1)
-        self.declare_parameter('target_frame', 'turntable')
+        self.declare_parameter('target_frame', 'object_frame')
 
         self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
         self.camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
