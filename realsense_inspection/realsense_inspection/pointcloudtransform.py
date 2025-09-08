@@ -12,6 +12,8 @@ from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
+from builtin_interfaces.msg import Time
+
 
 from tf2_ros import Buffer, TransformListener, TransformException
 
@@ -88,7 +90,7 @@ class DepthBGRemove(Node):
         self.depth_frame_id = None
 
         # TF2 for transforms to target_frame
-        self.tf_buffer = Buffer(cache_time=Duration(seconds=5.0))
+        self.tf_buffer = Buffer(cache_time=Duration(seconds=0.5))
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Subs
@@ -204,7 +206,7 @@ class DepthBGRemove(Node):
             x = (xs.astype(np.float32) - cx) * z / fx    # (N,)
             y = (ys.astype(np.float32) - cy) * z / fy    # (N,)
             pts = np.stack([x, y, z], axis=1)            # (N,3)
-
+            zero_stamp = Time(sec=0, nanosec=0)
             # Publish cloud in source (camera) frame
             src_frame = self.depth_frame_id or msg.header.frame_id
             cloud_src = make_pointcloud2(pts, frame_id=src_frame, stamp=msg.header.stamp)
@@ -215,8 +217,8 @@ class DepthBGRemove(Node):
             if self.pub_cloud_target is not None:
                 try:
                     T = self.tf_buffer.lookup_transform(
-                        self.target_frame, src_frame, msg.header.stamp, timeout=Duration(seconds=0.05)
-                    )
+                        self.target_frame, src_frame, zero_stamp, timeout=Duration(seconds=0.001))
+                    self.get_logger().info(f'TF {self.target_frame} <- {src_frame} at {msg.header.stamp.sec}.{msg.header.stamp.nanosec}')
                     q = T.transform.rotation
                     R = _quat_to_R_xyzw(q.x, q.y, q.z, q.w)
                     t = T.transform.translation
