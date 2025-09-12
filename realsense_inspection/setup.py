@@ -25,6 +25,7 @@ setup(
             'depthfilterandpointcloud= realsense_inspection.depthfilterandpointcloud:main',
             'normal_estimator= realsense_inspection.normalestimation:main',
             'pointcloudtransform = realsense_inspection.pointcloudtransform:main',
+            'boundingbox = realsense_inspection.boundingbox:main',
         ],
     },
 )
