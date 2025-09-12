@@ -44,8 +44,8 @@ def _pca_plane_normal(pts_np: np.ndarray):
     C = (X.T @ X) / max(len(X) - 1, 1)
     w, v = LA.eigh(C)
     n = v[:, 0]
-    # Make direction consistent (toward camera +Z in depth cam frame)
-    if n[2] < 0:
+    # Make direction consistent (toward camera -Z in depth cam frame)
+    if n[2] > 0:
         n = -n
     n /= (LA.norm(n) + 1e-12)
     return c, n
@@ -62,15 +62,20 @@ def _quaternion_from_z(normal: np.ndarray) -> Quaternion:
   #  R = np.stack([x, y, z], axis=1)
 
     z = normal / LA.norm(normal)
+   # z = -normal / LA.norm(normal)
     up = np.array([0, 1, 0])
     if np.array_equal(z, up):
        x = np.array([1, 0, 0])
+      #x = np.array([-1, 0, 0])
     elif np.array_equal(z, -up):
-         x = np.array([-1, 0, 0])
+        x = np.array([-1, 0, 0])
+     #  x = np.array([1, 0, 0])
     else:
          x = np.cross(up, z)
+         #x = np.cross(z, up)
          x /= LA.norm(x)
     y = np.cross(z, x)
+    #y = np.cross(x, z)
     R = np.stack([x, y, z], axis=1)
 
 
