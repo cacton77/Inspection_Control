@@ -76,7 +76,7 @@ class DepthBGRemove(Node):
         self.declare_parameter('bbox_max_y',  0.10)
         self.declare_parameter('bbox_min_z',  0.00)
         self.declare_parameter('bbox_max_z',  0.40)
-        self.declare_parameter('bbox_output_frame', 'eaot_camera_link')  # NEW
+        self.declare_parameter('bbox_output_frame', 'eoat_camera_link')  # NEW
 
         self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
         self.camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
