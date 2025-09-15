@@ -26,6 +26,7 @@ setup(
             'normal_estimator= realsense_inspection.normalestimation:main',
             'pointcloudtransform = realsense_inspection.pointcloudtransform:main',
             'boundingbox = realsense_inspection.boundingbox:main',
+            'eaot_pointcloud = realsense_inspection.pointcloudeaot:main',
         ],
     },
 )
