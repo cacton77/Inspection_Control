@@ -243,7 +243,7 @@ class DepthBGRemove(Node):
                 self.bbox_min_z = float(p.value)
             elif p.name == 'bbox_max_z':
                 self.bbox_max_z = float(p.value)
-             elif p.name == 'bbox_output_frame':  
+            elif p.name == 'bbox_output_frame':  
                 new_frame = str(p.value)
                 if new_frame != self.bbox_output_frame:
                     self.bbox_output_frame = new_frame
