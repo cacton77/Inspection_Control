@@ -126,7 +126,7 @@ class DepthBGRemove(Node):
         self.pub_cloud_bbox = self.create_publisher(
             PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}_bbox', 10
         ) if self.publish_pointcloud else None
-         self.pub_cloud_bbox_out = self.create_publisher(
+        self.pub_cloud_bbox_out = self.create_publisher(
             PointCloud2, f'/camera/camera/depth/foreground_points_{self.bbox_output_frame}_bbox', 10
         ) if self.publish_pointcloud else None
 
