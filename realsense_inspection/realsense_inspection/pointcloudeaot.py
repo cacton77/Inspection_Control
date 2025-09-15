@@ -146,7 +146,7 @@ class DepthBGRemove(Node):
             f'  bbox: x[{self.bbox_min_x:.3f},{self.bbox_max_x:.3f}] '
             f'y[{self.bbox_min_y:.3f},{self.bbox_max_y:.3f}] '
             f'z[{self.bbox_min_z:.3f},{self.bbox_max_z:.3f}]'
-             f'  bbox_output_frame={self.bbox_output_frame}' 
+            f'  bbox_output_frame={self.bbox_output_frame}' 
         )
 
     # Camera intrinsics
