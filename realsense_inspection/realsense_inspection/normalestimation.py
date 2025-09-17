@@ -8,6 +8,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rcl_interfaces.msg import SetParametersResult
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from std_msgs.msg import Header, Bool
@@ -108,6 +110,9 @@ class DepthBGRemove(Node):
     def __init__(self):
         super().__init__('depth_bg_remove')
 
+        sub_cb_group = ReentrantCallbackGroup()
+        timer_cb_group = MutuallyExclusiveCallbackGroup()
+
         # ---- Parameters ----
         self.declare_parameter('depth_topic', '/camera/camera/depth/image_rect_raw')
         self.declare_parameter('camera_info_topic', '/camera/camera/depth/camera_info')
@@ -149,7 +154,10 @@ class DepthBGRemove(Node):
 
         # Subs
         self.sub_info = self.create_subscription(CameraInfo, self.camera_info_topic, self.on_info, qos)
-        self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, qos)
+        self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, qos, callback_group=sub_cb_group)
+
+        self.depth_msg = None
+        self.create_timer(0.1, self.process_dmap, callback_group=timer_cb_group)
 
         self.get_logger().info(
             'Background remover running:\n'
@@ -192,6 +200,12 @@ class DepthBGRemove(Node):
 
     def on_depth(self, msg: Image):
         # Convert ROS Image -> numpy
+        self.depth_msg = msg
+
+    def process_dmap(self):
+        if not self.depth_msg:
+            return
+        msg = self.depth_msg
         depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
         # Normalize to meters
@@ -307,4 +321,14 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        with rclpy.init():
+            node = DepthBGRemove()
+            executor = MultiThreadedExecutor()
+            executor.add_node(node)
+
+            node.get_logger().info('Beginning Depth Processing, shut down with CTRL-C')
+            executor.spin()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+
