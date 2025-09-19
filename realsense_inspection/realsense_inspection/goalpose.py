@@ -65,7 +65,7 @@ def _pca_plane_normal(pts_np: np.ndarray):
     w, v = LA.eigh(C)
     n = v[:, 0]
     # Make direction consistent (toward camera -Z in depth cam frame)
-    if n[2] > 0:
+    if n[2] < 0:
         n = -n
     n /= (LA.norm(n) + 1e-12)
     return c, n
