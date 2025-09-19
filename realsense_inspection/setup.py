@@ -28,6 +28,7 @@ setup(
             'boundingbox = realsense_inspection.boundingbox:main',
             'eaot_pointcloud = realsense_inspection.pointcloudeaot:main',
             'eoat_normalestimation = realsense_inspection.eoat_normalestimation:main',
+            'goal_pose = realsense_inspection.goalpose:main',
         ],
     },
 )
