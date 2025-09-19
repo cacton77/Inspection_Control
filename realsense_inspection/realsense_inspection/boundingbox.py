@@ -14,6 +14,8 @@ from std_msgs.msg import Header
 from cv_bridge import CvBridge
 from builtin_interfaces.msg import Time
 from visualization_msgs.msg import Marker
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 
 
 from tf2_ros import Buffer, TransformListener, TransformException
@@ -57,6 +59,9 @@ def make_pointcloud2(points_xyz: np.ndarray, frame_id: str, stamp) -> PointCloud
 class DepthBGRemove(Node):
     def __init__(self):
         super().__init__('depth_bg_remove')
+
+        sub_cb_group = ReentrantCallbackGroup()
+        timer_cb_group = MutuallyExclusiveCallbackGroup()
 
         # ---- Parameters ----
         self.declare_parameter('depth_topic', '/camera/camera/depth/image_rect_raw')
@@ -114,7 +119,9 @@ class DepthBGRemove(Node):
 
         # Subs
         self.sub_info = self.create_subscription(CameraInfo, self.camera_info_topic, self.on_info, qos)
-        self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, qos)
+        self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, qos,callback_group=sub_cb_group)
+        self.depth_msg = None
+        self.create_timer(0.01, self.process_dmap, callback_group=timer_cb_group)
 
         # Pubs
         self.pub_masked = self.create_publisher(Image, '/camera/camera/depth/foreground', 10)
@@ -237,6 +244,13 @@ class DepthBGRemove(Node):
         return SetParametersResult(successful=True)
 
     def on_depth(self, msg: Image):
+        # Convert ROS Image -> numpy
+        self.depth_msg = msg    
+
+    def process_dmap(self):
+        if not self.depth_msg:
+            return
+        msg = self.depth_msg
         # Convert ROS Image -> numpy
         depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
