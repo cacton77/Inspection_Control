@@ -31,6 +31,7 @@ setup(
             'goal_pose = realsense_inspection.goalpose:main',
             'boundingboxnew = realsense_inspection.boundingboxnew:main',
             'boundingboxnewreducedpub = realsense_inspection.boundingboxnewreducedpub:main',
+            'boundingboxrealsensepc = realsense_inspection.boundingboxrealsensepc:main',
         ],
     },
 )
