@@ -134,7 +134,7 @@ class DepthBGRemove(Node):
         self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, qos,callback_group=sub_cb_group)
         self.bbox = self.create_subscription(Marker, self.bounding_box_topic, self.on_bbox, qos)
         self.depth_msg = None
-        self.create_timer(2, self.process_dmap, callback_group=timer_cb_group)
+        self.create_timer(0.1, self.process_dmap, callback_group=timer_cb_group)
 
         # Pubs
        # self.pub_masked = self.create_publisher(Image, '/camera/camera/depth/foreground', 10)
