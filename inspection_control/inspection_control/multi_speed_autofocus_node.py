@@ -104,7 +104,7 @@ class PoseStampedCreator(Node):
         # Sobel initialize
         self.focus_pose_dict = {}
         self.new_focus_value_sub = self.create_subscription(
-            FocusValue, '/image_raw/compressed/focus_value', self.new_focus_value_callback, 10)
+            FocusValue, '/camera/image_raw/compressed/focus_value', self.new_focus_value_callback, 10)
         self.ema_focus_value = 0
         self.ema_focus_value2 = 0
         self.dema_focus_value = 0
