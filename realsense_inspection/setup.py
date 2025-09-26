@@ -30,6 +30,7 @@ setup(
             'eoat_normalestimation = realsense_inspection.eoat_normalestimation:main',
             'goal_pose = realsense_inspection.goalpose:main',
             'boundingboxnew = realsense_inspection.boundingboxnew:main',
+            'boundingboxnewreducedpub = realsense_inspection.boundingboxnewreducedpub:main',
         ],
     },
 )
