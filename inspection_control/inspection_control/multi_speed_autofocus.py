@@ -23,7 +23,7 @@ import rosbag2_py
 
 import numpy as np
 from std_msgs.msg import Float64, Header
-from inspection_msgs.msg import FocusValue
+from viewpoint_generation_interfaces.msg import FocusValuefrom inspection_msgs.msg import FocusValue
 import math
 import csv
 import os
@@ -52,7 +52,7 @@ class PoseStampedCreator(Node):
 
         # Create a client to the service
         self.pose_client = self.create_client(
-            MoveToPoseStamped, '/inspection/move_to_pose')
+            MoveToPoseStamped, 'viewpoint_traversal/move_to_pose_stamped')
         while not self.pose_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
         self.get_logger().info('Hello world.')
@@ -71,20 +71,13 @@ class PoseStampedCreator(Node):
         # Create the twist client
         self.twist_publisher = self.create_publisher(
             TwistStamped, '/servo_node/delta_twist_cmds', 10)
-        self.twist_client = self.create_client(
-            Trigger, '/servo_node/start_servo')
-        while not self.twist_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('twist service not available, waiting again...')
         self.get_logger().info('Twist says hello.')
         self.twist_req = Trigger.Request()
-        self.async_twist_call_result = self.twist_client.call_async(
-            self.twist_req)
         timer_period = 0.1  # seconds
         self.timer = self.create_timer(timer_period, self.twist_callback)
 
         # Dynamic reconfigure twist_started
-        self.declare_parameter('twist_started', False, descriptor=ParameterDescriptor(
-            dynamic_typing=True))  # dynamic_typing=True makes the parameter dynamically reconfigurable
+        # dynamic_typing=True makes the parameter dynamically reconfigurable
         self.declare_parameter(
             'x_twist_speed', 0.0, descriptor=ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter('y_twist_speed', self.speed,
@@ -97,7 +90,7 @@ class PoseStampedCreator(Node):
             'y_twist_angular', 0.0, descriptor=ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter('z_twist_angular', 0.0, descriptor=ParameterDescriptor(
             dynamic_typing=True))  # declare z_twist_angular as a parameter
-        self.twist_started = self.get_parameter('twist_started').value
+
         self.x_twist_speed = self.get_parameter('x_twist_speed').value
         self.y_twist_speed = self.get_parameter('y_twist_speed').value
         self.z_twist_speed = self.get_parameter('z_twist_speed').value
@@ -138,18 +131,19 @@ class PoseStampedCreator(Node):
     # Move to the pose we received
 
     def on_timer(self):
+        # print(self.state)
         if self.state == FEEDBACK:
             self.simple_feedback()
 
         elif self.state == SLEEP_INIT:
             try:
                 self.tf_wt_start = self.tf_buffer.lookup_transform(
-                    'world', 'tool0', rclpy.time.Time(), rclpy.time.Duration(seconds=1.0))
+                    'object_frame', 'eoat_camera_link', rclpy.time.Time(), rclpy.time.Duration(seconds=1.0))
                 print('Got the transform')
             except TransformException as e:
                 self.get_logger().error(f"Transform lookup failed: {e}")
             self.start_pose = PoseStamped()
-            self.start_pose.header.frame_id = 'world'
+            self.start_pose.header.frame_id = 'object_frame'
             self.start_pose.pose.position.x = self.tf_wt_start.transform.translation.x
             self.start_pose.pose.position.y = self.tf_wt_start.transform.translation.y
             self.start_pose.pose.position.z = self.tf_wt_start.transform.translation.z
@@ -212,11 +206,12 @@ class PoseStampedCreator(Node):
 
     def send_request_world(self, pose_map):
         curr_time = rclpy.time.Time()
-        tf_wt = self.tf_buffer.lookup_transform('world', 'tool0', curr_time)
+        tf_wt = self.tf_buffer.lookup_transform(
+            'object_frame', 'eoat_camera_link', curr_time)
 
         # Send the transformed pose as the request
         target_pose_map = PoseStamped()
-        target_pose_map.header.frame_id = 'world'
+        target_pose_map.header.frame_id = 'object_frame'
         # Ensure pose_map is a Pose object
         if not isinstance(pose_map, Pose):
             pose_map = Pose(
@@ -224,14 +219,14 @@ class PoseStampedCreator(Node):
                 orientation=pose_map.orientation
             )
         target_pose_map.pose = pose_map
-        self.req.target_pose = target_pose_map
+        self.req.pose_goal = target_pose_map
 
         # publish destination pose to topic 'published_pose'
         self.pose_publisher.publish(target_pose_map)
 
         # Call the service
         req = MoveToPoseStamped.Request()
-        req.target_pose = target_pose_map
+        req.pose_goal = target_pose_map
 
         future = self.pose_client.call_async(req)
         future.add_done_callback(self.response_callback_world)
@@ -252,9 +247,7 @@ class PoseStampedCreator(Node):
     # on_parameter_change is a new method that gets called whenever a parameter changes. It updates self.twist_started with the new value of the twist_started parameter
     def on_parameter_change(self, parameters):
         for parameter in parameters:
-            if parameter.name == 'twist_started':
-                self.twist_started = parameter.value
-            elif parameter.name == 'x_twist_speed':
+            if parameter.name == 'x_twist_speed':
                 self.x_twist_speed = parameter.value
             elif parameter.name == 'y_twist_speed':
                 self.y_twist_speed = parameter.value
@@ -269,12 +262,9 @@ class PoseStampedCreator(Node):
         return SetParametersResult(successful=True)
 
     def twist_callback(self):
-        if not self.twist_started:
-            return
-
         msg = TwistStamped()
         msg.header.stamp = ROSClock().now().to_msg()
-        msg.header.frame_id = 'tool0'
+        msg.header.frame_id = 'eoat_camera_link'
         msg.twist.linear.x = self.x_twist_speed
         msg.twist.linear.y = self.y_twist_speed
         msg.twist.linear.z = self.z_twist_speed
@@ -291,15 +281,15 @@ class PoseStampedCreator(Node):
         try:
             # Attempt to get the transform at the exact requested time
             tf_wt = self.tf_buffer.lookup_transform(
-                'world', 'tool0', self.new_time)
+                'object_frame', 'eoat_camera_link', self.new_time)
         except tf2_ros.TransformException as ex:
             # self.get_logger().info(f'Could not fine tune. Using latest known transform instead') # {ex}')
             # Fallback to the latest available transform within a 1-second duration
             tf_wt = self.tf_buffer.lookup_transform(
-                'world', 'tool0', rclpy.time.Time(), rclpy.time.Duration(seconds=1.0))
+                'object_frame', 'eoat_camera_link', rclpy.time.Time(), rclpy.time.Duration(seconds=1.0))
 
         pose_world = PoseStamped()
-        pose_world.header.frame_id = 'world'
+        pose_world.header.frame_id = 'object_frame'
         pose_world.pose.position.x = tf_wt.transform.translation.x
         pose_world.pose.position.y = tf_wt.transform.translation.y
         pose_world.pose.position.z = tf_wt.transform.translation.z
@@ -337,7 +327,7 @@ class PoseStampedCreator(Node):
             self.previous_dFV = self.dFV
             self.dFV = self.dema_focus_value - self.previous_dema_focus_value
             ddFV = self.dFV - self.previous_dFV
-            # Smoothing ddFV
+        # Smoothing ddFV
             K_smooth = 2 / (3 + 1)
             self.smooth_ddFV = (
                 K_smooth * (ddFV - self.smooth_ddFV)) + self.smooth_ddFV
@@ -355,17 +345,13 @@ class PoseStampedCreator(Node):
         }
 
     def simple_feedback(self):
-        self.set_parameters([rclpy.parameter.Parameter(
-            'twist_started', rclpy.parameter.Parameter.Type.BOOL, True)])
-        self.twist_started = self.get_parameter('twist_started').value
-
         # Current and Offset pose to move forward
         curr_time_fb = rclpy.time.Time()
         tf_wt_fb = self.tf_buffer.lookup_transform(
-            'world', 'tool0', curr_time_fb)
+            'object_frame', 'eoat_camera_link', curr_time_fb)
 
         current_pose = PoseStamped()
-        current_pose.header.frame_id = 'world'
+        current_pose.header.frame_id = 'object_frame'
         current_pose.pose.position.x = tf_wt_fb.transform.translation.x
         current_pose.pose.position.y = tf_wt_fb.transform.translation.y
         current_pose.pose.position.z = tf_wt_fb.transform.translation.z
@@ -386,9 +372,9 @@ class PoseStampedCreator(Node):
             #     print('dFV, ddFV, -kv*r',self.dFV,self.smooth_ddFV,self.speed,self.y_twist_speed)
             # dFV approximately 0 and ddFV negative (account for noise)
             elif self.previous_dFV > 2 and self.dFV < 2 and self.smooth_ddFV < -0.1:
-                self.set_parameters([rclpy.parameter.Parameter(
-                    'twist_started', rclpy.parameter.Parameter.Type.BOOL, False)])
-                self.twist_started = self.get_parameter('twist_started').value
+                # self.set_parameters([rclpy.parameter.Parameter(
+                #     'twist_started', rclpy.parameter.Parameter.Type.BOOL, False)])
+                # self.twist_started = self.get_parameter('twist_started').value
                 print('Completed autofocus!')
                 print('dFV, ddFV', self.dFV, self.smooth_ddFV)
 

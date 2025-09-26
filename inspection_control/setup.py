@@ -28,7 +28,7 @@ setup(
             'teleop = inspection_control.teleop_node:main',
             'admittance_control = inspection_control.admittance_control_node:main',
             'focus_monitor = inspection_control.focus_monitor_node:__main__',
-            'multi_speed_autofocus = inspection_control.multi_speed_autofocus_node:main',
+            'multi_speed_autofocus = inspection_control.multi_speed_autofocus:main',
         ],
     },
 )
