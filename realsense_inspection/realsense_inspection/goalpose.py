@@ -417,13 +417,13 @@ class DepthBGRemove(Node):
         self.pub_masked.publish(out)
         self.get_logger().info('Check five\n')
         # Viz
-        if self.pub_viz is not None:
-            denom = max(self.far_m, 1e-3)
-            viz8 = np.clip((masked_m / denom) * 255.0, 0, 255).astype(np.uint8)
-            viz_color = cv2.applyColorMap(viz8, cv2.COLORMAP_TURBO)
-            viz_msg = self.bridge.cv2_to_imgmsg(viz_color, encoding='bgr8')
-            viz_msg.header = msg.header
-            self.pub_viz.publish(viz_msg)
+        # if self.pub_viz is not None:
+        #     denom = max(self.far_m, 1e-3)
+        #     viz8 = np.clip((masked_m / denom) * 255.0, 0, 255).astype(np.uint8)
+        #     viz_color = cv2.applyColorMap(viz8, cv2.COLORMAP_TURBO)
+        #     viz_msg = self.bridge.cv2_to_imgmsg(viz_color, encoding='bgr8')
+        #     viz_msg.header = msg.header
+        #     self.pub_viz.publish(viz_msg)
         self.get_logger().info('Check six\n')
         if self.K is None:
             self.normal_valid_pub.publish(Bool(data=False))
