@@ -45,7 +45,8 @@ def make_pointcloud2(points_xyz: np.ndarray, frame_id: str, stamp) -> PointCloud
     msg.height = 1
     msg.width = int(points_xyz.shape[0])
     msg.is_bigendian = False
-    msg.is_dense = True  # no NaNs because we filtered them out
+   # msg.is_dense = True  # no NaNs because we filtered them out
+    msg.is_dense = points_xyz.size > 0 # when empty, set is_dense False so RViz clears properly
     msg.point_step = 12  # 3 * 4 bytes
     msg.row_step = msg.point_step * msg.width
     msg.fields = [
@@ -53,7 +54,8 @@ def make_pointcloud2(points_xyz: np.ndarray, frame_id: str, stamp) -> PointCloud
         PointField(name='y', offset=4,  datatype=PointField.FLOAT32, count=1),
         PointField(name='z', offset=8,  datatype=PointField.FLOAT32, count=1),
     ]
-    msg.data = points_xyz.astype(np.float32).tobytes()
+  #  msg.data = points_xyz.astype(np.float32).tobytes()
+    msg.data = points_xyz.astype(np.float32).tobytes() if points_xyz.size else b""
     return msg
 
 
@@ -291,7 +293,16 @@ class DepthBGRemove(Node):
 
     def on_depth(self, msg: Image):
         # Convert ROS Image -> numpy
-        self.depth_msg = copy.deepcopy(msg)    
+        self.depth_msg = copy.deepcopy(msg)   
+
+
+       # --- helper: publish an empty bbox cloud to clear RViz ---
+    def publish_empty_bbox(self, stamp):
+        if self.pub_cloud_bbox is None:
+            return
+        empty = np.zeros((0, 3), dtype=np.float32)
+        self.pub_cloud_bbox.publish(make_pointcloud2(empty, self.target_frame, stamp))
+    # Process the latest depth map 
 
     def process_dmap(self):
         if not self.depth_msg:
@@ -339,6 +350,8 @@ class DepthBGRemove(Node):
 
             ys, xs = np.where(mask)
             if xs.size == 0:
+                if self.bbox_enable:
+                  self.publish_empty_bbox(msg.header.stamp)
              #   self._publish_bbox_marker(msg.header.stamp)
                 return
             if stride > 1:
@@ -375,24 +388,30 @@ class DepthBGRemove(Node):
             except TransformException as e:
                 self.get_logger().warn(f'No TF {self.target_frame} <- {src_frame} at stamp: {e}')
                    # self._publish_bbox_marker(msg.header.stamp)
+                if self.bbox_enable:
+                    self.publish_empty_bbox(msg.header.stamp)
                 return
             
             # --- Axis-aligned bounding-box filter in target_frame ---
-            if self.bbox_enable and self.has_bbox and pts_tgt.shape[0] > 0:
+            if self.bbox_enable: 
+                if not self.has_bbox or pts_tgt.shape[0] == 0:
+                    self.publish_empty_bbox(msg.header.stamp)
+                    return  # and self.has_bbox and pts_tgt.shape[0] > 0:
                 X, Y, Z = pts_tgt[:, 0], pts_tgt[:, 1], pts_tgt[:, 2]
                 sel = (
                     (X >= self.bbox_min_x) & (X <= self.bbox_max_x) &
                     (Y >= self.bbox_min_y) & (Y <= self.bbox_max_y) &
                     (Z >= self.bbox_min_z) & (Z <= self.bbox_max_z)
                 )
-
-                if np.any(sel):
-                    pts_bbox = np.ascontiguousarray(pts_tgt[sel])
-                    if self.pub_cloud_bbox is not None:
-                        cloud_bbox = make_pointcloud2(
-                            pts_bbox, frame_id=self.target_frame, stamp=msg.header.stamp
-                        )
-                        self.pub_cloud_bbox.publish(cloud_bbox)
+                if not np.any(sel):
+                    self.publish_empty_bbox(msg.header.stamp)
+                    return
+                pts_bbox = np.ascontiguousarray(pts_tgt[sel])
+                if self.pub_cloud_bbox is not None:
+                    cloud_bbox = make_pointcloud2(
+                        pts_bbox, frame_id=self.target_frame, stamp=msg.header.stamp
+                    )
+                    self.pub_cloud_bbox.publish(cloud_bbox)
 
             # Publish a cube marker so you can see the box in RViz
             #self._publish_bbox_marker(msg.header.stamp)
