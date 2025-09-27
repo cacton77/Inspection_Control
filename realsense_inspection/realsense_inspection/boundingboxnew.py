@@ -130,7 +130,7 @@ class DepthBGRemove(Node):
 
         # Subs
         self.sub_info = self.create_subscription(CameraInfo, self.camera_info_topic, self.on_info, qos)
-        self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, 10,callback_group=sub_cb_group)
+        self.sub_depth = self.create_subscription(Image, self.depth_topic, self.on_depth, 1,callback_group=sub_cb_group)
         self.bbox = self.create_subscription(Marker, self.bounding_box_topic, self.on_bbox, qos)
         self.depth_msg = None
         self.create_timer(0.1, self.process_dmap, callback_group=timer_cb_group)
