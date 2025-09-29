@@ -9,6 +9,7 @@ import io
 from cv_bridge import CvBridge, CvBridgeError
 from inspection_control import focus_metrics
 from viewpoint_generation_interfaces.msg import FocusValue
+from std_msgs.msg import Float64
 from sensor_msgs.msg import CompressedImage, Image
 
 class FocusMonitorNode(Node):
@@ -43,57 +44,15 @@ class FocusMonitorNode(Node):
         )
 
         self.publisher = self.create_publisher(FocusValue, f'{self.image_topic}/focus_value', 10)
+        self.float_publisher = self.create_publisher(Float64, f'{self.image_topic}/focus_value_float', 10)
 
         self.add_on_set_parameters_callback(self.parameter_callback)
 
     def image_callback(self, msg):
         # Process the incoming image message
         self.get_logger().info('Received compressed image message')
-        
-        try:
-            # Workaround: Use PIL to decode JPEG, then convert to OpenCV format
-            # Convert array.array to bytes
-            if hasattr(msg.data, 'tobytes'):
-                jpeg_bytes = msg.data.tobytes()
-            else:
-                jpeg_bytes = bytes(msg.data)
-            
-            # Use PIL to decode JPEG
-            pil_image = PILImage.open(io.BytesIO(jpeg_bytes))
-            
-            # Convert PIL image to numpy array
-            cv_image = np.array(pil_image)
-            
-            # Debug the converted image
-            self.get_logger().info(f"PIL converted image info:")
-            self.get_logger().info(f"  Shape: {cv_image.shape}")
-            self.get_logger().info(f"  Dtype: {cv_image.dtype}")
-            self.get_logger().info(f"  Type: {type(cv_image)}")
-            self.get_logger().info(f"  Contiguous: {cv_image.flags.c_contiguous}")
-            
-            # Ensure proper numpy array format for OpenCV
-            cv_image = np.ascontiguousarray(cv_image, dtype=np.uint8)
-            
-            # PIL uses RGB, OpenCV uses BGR - convert if needed
-            if len(cv_image.shape) == 3 and cv_image.shape[2] == 3:
-                try:
-                    cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
-                    self.get_logger().info("Successfully converted RGB to BGR")
-                except Exception as cvt_error:
-                    self.get_logger().error(f"cvtColor failed: {cvt_error}")
-                    # If cvtColor fails, try manual channel swapping
-                    self.get_logger().info("Trying manual RGB to BGR conversion")
-                    cv_image = cv_image[:, :, ::-1]  # Reverse the channel order
-            
-            self.get_logger().info(f"Final image shape: {cv_image.shape}")
-            
-        except Exception as e:
-            self.get_logger().error(f"Error decoding compressed image: {e}")
-            return
 
-        if cv_image.size == 0:
-            self.get_logger().warn("Received empty image")
-            return
+        cv_image = self.bridge.compressed_imgmsg_to_cv2(msg).astype(np.uint8)
 
         height, width, _ = cv_image.shape
         x_center = int(self.roi_x * width)
@@ -130,10 +89,9 @@ class FocusMonitorNode(Node):
             focus_value_msg.header.stamp = self.get_clock().now().to_msg()
             focus_value_msg.header.frame_id = "eoat_camera_link"
             focus_value_msg.metric = self.metric
-            focus_value_msg.value = float(focus_value)
+            focus_value_msg.data = float(focus_value)
             self.publisher.publish(focus_value_msg)
-            
-            self.get_logger().info(f"Published focus value: {focus_value}")
+            self.float_publisher.publish(Float64(data=float(focus_value)))
 
         except Exception as e:
             self.get_logger().error(f"Error calculating focus metric: {e}")
