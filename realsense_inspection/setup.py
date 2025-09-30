@@ -33,6 +33,8 @@ setup(
             'boundingboxnewreducedpub = realsense_inspection.boundingboxnewreducedpub:main',
             'boundingboxrealsensepc = realsense_inspection.boundingboxrealsensepc:main',
             'boundingboxopen3d = realsense_inspection.boundingboxopen3d:main',
+            'pointcloudeoatreducedpub = realsense_inspection.pointcloudeoatreducedpub:main',
+            'boundingboxempty = realsense_inspection.boundingboxempty:main',
         ],
     },
 )
