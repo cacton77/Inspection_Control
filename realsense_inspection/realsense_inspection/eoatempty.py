@@ -144,9 +144,9 @@ class DepthBGRemove(Node):
        # self.pub_cloud_target = self.create_publisher(
       #      PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}', 10
       #  ) if self.publish_pointcloud else None
-        self.pub_cloud_bbox = self.create_publisher(
-            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
-        ) if self.publish_pointcloud else None
+        #self.pub_cloud_bbox = self.create_publisher(
+       #     PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
+      #  ) if self.publish_pointcloud else None
         self.pub_cloud_bbox_out = self.create_publisher(
             PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.bbox_output_frame}_bbox', 10
         ) if self.publish_pointcloud else None
@@ -257,12 +257,13 @@ class DepthBGRemove(Node):
                 #        self.pub_cloud_target = self.create_publisher(
                  #           PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}', 10
                 #        )
-                    if self.pub_cloud_bbox is None:
-                        self.pub_cloud_bbox = self.create_publisher(
-                            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
+                    #if self.pub_cloud_bbox is None:
+                    if self.pub_cloud_bbox_out is None:
+                        self.pub_cloud_bbox_out = self.create_publisher(
+                            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.pub_cloud_bbox_out}_bbox', 10
                         )
                 if not self.publish_pointcloud:
-                    self.pub_cloud_bbox = None
+                    self.pub_cloud_bbox_out = None
                # else:
                  #   self.pub_cloud = None
                  #   self.pub_cloud_target = None
@@ -271,13 +272,13 @@ class DepthBGRemove(Node):
                 self.cloud_stride = max(1, int(p.value))
             elif p.name == 'target_frame':
                 self.target_frame = str(p.value)
-                if self.publish_pointcloud:# and self.pub_cloud_target is None:
+               # if self.publish_pointcloud:# and self.pub_cloud_target is None:
                  #   self.pub_cloud_target = self.create_publisher(
                  #       PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}', 10
                  #   )
-                    self.pub_cloud_bbox = self.create_publisher(
-                        PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
-                    )
+                 #   self.pub_cloud_bbox = self.create_publisher(
+                  #      PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
+                  #  )
             elif p.name == 'bbox_enable':
                 self.bbox_enable = bool(p.value)
            # elif p.name == 'bbox_min_x':
@@ -402,11 +403,11 @@ class DepthBGRemove(Node):
 
                 #if np.any(sel):
                 pts_bbox = np.ascontiguousarray(pts_tgt[sel])
-                if self.pub_cloud_bbox is not None:
-                    cloud_bbox = make_pointcloud2(
-                        pts_bbox, frame_id=self.target_frame, stamp=msg.header.stamp
-                    )
-                self.pub_cloud_bbox.publish(cloud_bbox)
+              #  if self.pub_cloud_bbox is not None:
+               #     cloud_bbox = make_pointcloud2(
+               #         pts_bbox, frame_id=self.target_frame, stamp=msg.header.stamp
+               #     )
+             #   self.pub_cloud_bbox.publish(cloud_bbox)
 
             if self.pub_cloud_bbox_out is not None and self.bbox_output_frame: 
                 try:
