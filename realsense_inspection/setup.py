@@ -33,6 +33,7 @@ setup(
             'boundingboxnewreducedpub = realsense_inspection.boundingboxnewreducedpub:main',
             'pointcloudeoatreducedpub = realsense_inspection.pointcloudeoatreducedpub:main',
             'boundingboxempty = realsense_inspection.boundingboxempty:main',
+            'eoatempty = realsense_inspection.eoatempty:main',
         ],
     },
 )
