@@ -67,8 +67,8 @@ class DepthBGRemove(Node):
         timer_cb_group = MutuallyExclusiveCallbackGroup()
 
         # ---- Parameters ----
-        self.declare_parameter('depth_topic', '/camera/camera/depth/image_rect_raw')
-        self.declare_parameter('camera_info_topic', '/camera/camera/depth/camera_info')
+        self.declare_parameter('depth_topic', '/camera/d405_camera/depth/image_rect_raw')
+        self.declare_parameter('camera_info_topic', '/camera/d405_camera/depth/camera_info')
         self.declare_parameter('bounding_box_topic', '/viewpoint_generation/bounding_box_marker')
         self.declare_parameter('near_m', 0.07)
         self.declare_parameter('far_m', 0.50)
@@ -85,7 +85,7 @@ class DepthBGRemove(Node):
      #   self.declare_parameter('bbox_max_y',  0.10)
      #   self.declare_parameter('bbox_min_z',  0.00)
       #  self.declare_parameter('bbox_max_z',  0.40)
-
+        self.declare_parameter('bbox_output_frame', 'eoat_camera_link')  # NEW
 
         self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
         self.camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
@@ -113,7 +113,7 @@ class DepthBGRemove(Node):
        # self.bbox_max_y = float(self.get_parameter('bbox_max_y').value)
       #  self.bbox_min_z = float(self.get_parameter('bbox_min_z').value)
       #  self.bbox_max_z = float(self.get_parameter('bbox_max_z').value)
-
+        self.bbox_output_frame = self.get_parameter('bbox_output_frame').get_parameter_value().string_value 
         # Live tuning
         self.add_on_set_parameters_callback(self._on_param_update)
 
@@ -139,16 +139,19 @@ class DepthBGRemove(Node):
         self.create_timer(0.1, self.process_dmap, callback_group=timer_cb_group)
 
         # Pubs
-       # self.pub_masked = self.create_publisher(Image, '/camera/camera/depth/foreground', 10)
-       # self.pub_viz = self.create_publisher(Image, '/camera/camera/depth/foreground_viz', 10) if self.viz_enable else None
-      #  self.pub_cloud = self.create_publisher(PointCloud2, '/camera/camera/depth/foreground_points', 10) if self.publish_pointcloud else None
+       # self.pub_masked = self.create_publisher(Image, '/camera/d405_camera/depth/foreground', 10)
+       # self.pub_viz = self.create_publisher(Image, '/camera/d405_camera/depth/foreground_viz', 10) if self.viz_enable else None
+      #  self.pub_cloud = self.create_publisher(PointCloud2, '/camera/d405_camera/depth/foreground_points', 10) if self.publish_pointcloud else None
        # self.pub_cloud_target = self.create_publisher(
-      #      PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}', 10
+      #      PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}', 10
       #  ) if self.publish_pointcloud else None
         self.pub_cloud_bbox = self.create_publisher(
-            PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}_bbox', 10
+            PointCloud2, f'{self.depth_topic}/foreground_points_{self.target_frame}_bbox', 10
         ) if self.publish_pointcloud else None
-
+        
+        self.pub_cloud_bbox_out = self.create_publisher(
+            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.bbox_output_frame}_bbox', 10
+        ) if self.publish_pointcloud else None
         # Marker for RViz to visualize the bbox
      #   self.pub_bbox_marker = self.create_publisher(Marker, f'/{self.get_name()}/bbox_marker', 1)
 
@@ -163,6 +166,8 @@ class DepthBGRemove(Node):
             f'  cloud_stride={self.cloud_stride}\n'
             f'  target_frame={self.target_frame}'
             f'  bbox_enable={self.bbox_enable}\n'
+            f'  bbox_output_frame={self.bbox_output_frame}' 
+        
        #     f'  bbox: x[{self.bbox_min_x:.3f},{self.bbox_max_x:.3f}] '
      #       f'y[{self.bbox_min_y:.3f},{self.bbox_max_y:.3f}] '
      #       f'z[{self.bbox_min_z:.3f},{self.bbox_max_z:.3f}]'
@@ -242,21 +247,21 @@ class DepthBGRemove(Node):
           #  elif p.name == 'viz_enable':
          #       self.viz_enable = bool(p.value)
           #      if self.viz_enable and self.pub_viz is None:
-          #          self.pub_viz = self.create_publisher(Image, '/camera/camera/depth/foreground_viz', 10)
+          #          self.pub_viz = self.create_publisher(Image, '/camera/d405_camera/depth/foreground_viz', 10)
           #      if not self.viz_enable and self.pub_viz is not None:
           #          self.pub_viz = None
             elif p.name == 'publish_pointcloud':
                 self.publish_pointcloud = bool(p.value)
                 if self.publish_pointcloud:
                   #  if self.pub_cloud is None:
-                 #       self.pub_cloud = self.create_publisher(PointCloud2, '/camera/camera/depth/foreground_points', 10)
+                 #       self.pub_cloud = self.create_publisher(PointCloud2, '/camera/d405_camera/depth/foreground_points', 10)
                  #   if self.pub_cloud_target is None:
                 #        self.pub_cloud_target = self.create_publisher(
-                 #           PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}', 10
+                 #           PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}', 10
                 #        )
                     if self.pub_cloud_bbox is None:
                         self.pub_cloud_bbox = self.create_publisher(
-                            PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}_bbox', 10
+                            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
                         )
                 if not self.publish_pointcloud:
                     self.pub_cloud_bbox = None
@@ -270,10 +275,10 @@ class DepthBGRemove(Node):
                 self.target_frame = str(p.value)
                 if self.publish_pointcloud:# and self.pub_cloud_target is None:
                  #   self.pub_cloud_target = self.create_publisher(
-                 #       PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}', 10
+                 #       PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}', 10
                  #   )
                     self.pub_cloud_bbox = self.create_publisher(
-                        PointCloud2, f'/camera/camera/depth/foreground_points_{self.target_frame}_bbox', 10
+                        PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.target_frame}_bbox', 10
                     )
             elif p.name == 'bbox_enable':
                 self.bbox_enable = bool(p.value)
@@ -289,6 +294,15 @@ class DepthBGRemove(Node):
           #      self.bbox_min_z = float(p.value)
           #  elif p.name == 'bbox_max_z':
            #     self.bbox_max_z = float(p.value)
+            elif p.name == 'bbox_output_frame':  
+                new_frame = str(p.value)
+                if new_frame != self.bbox_output_frame:
+                    self.bbox_output_frame = new_frame
+                    if self.publish_pointcloud:
+                        # Recreate out publisher with new name
+                        self.pub_cloud_bbox_out = self.create_publisher(
+                            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.bbox_output_frame}_bbox', 10
+                        )
         return SetParametersResult(successful=True)
 
     def on_depth(self, msg: Image):
@@ -412,6 +426,25 @@ class DepthBGRemove(Node):
                         pts_bbox, frame_id=self.target_frame, stamp=msg.header.stamp
                     )
                     self.pub_cloud_bbox.publish(cloud_bbox)
+            if self.pub_cloud_bbox_out is not None and self.bbox_output_frame: 
+                try:
+                    T_out = self.tf_buffer.lookup_transform(
+                        self.bbox_output_frame, self.target_frame, zero_stamp, timeout=Duration(seconds=0.001))
+                    self.get_logger().info(f'TF {self.bbox_output_frame} <- {self.target_frame} at {msg.header.stamp.sec}.{msg.header.stamp.nanosec}')
+                    q_out = T_out.transform.rotation
+                    R_out = _quat_to_R_xyzw(q_out.x, q_out.y, q_out.z, q_out.w)
+                    t_out = T_out.transform.translation
+                    t_vec_out = np.array([t_out.x, t_out.y, t_out.z], dtype=np.float32)
+                    pts_bbox_out = (R_out @ pts_bbox.T).T + t_vec_out  # (N,3)
+
+                    cloud_bbox_out = make_pointcloud2(
+                        pts_bbox_out, frame_id=self.bbox_output_frame, stamp=msg.header.stamp
+                    )
+                    self.pub_cloud_bbox_out.publish(cloud_bbox_out)
+                except TransformException as e:
+                    self.get_logger().warn(f'No TF {self.bbox_output_frame} <- {self.target_frame} at stamp: {e}')
+                   # self._publish_bbox_marker(msg.header.stamp)
+                    return              
 
             # Publish a cube marker so you can see the box in RViz
             #self._publish_bbox_marker(msg.header.stamp)
