@@ -17,6 +17,7 @@ import inspection_control.focus_metrics as focus_metrics
 from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import PoseStamped, TwistStamped, WrenchStamped
+from std_msgs.msg import Float64, String
 from viewpoint_generation_interfaces.msg import AutofocusData
 from viewpoint_generation_interfaces.srv import MoveToPoseStamped
 
@@ -93,6 +94,14 @@ class AutofocusNode(Node):
         # Initialize CvBridge
         self.bridge = CvBridge()
 
+        # EMA calculation variables with rolling window of 20 values
+        self.N_ema = 20  # Window size for EMA calculation
+        self.focus_values_window = []  # Rolling window of focus values
+        self.ema_focus_value2 = 0  # For DEMA calculation
+        self.previous_dema_focus_value = 0
+        self.previous_dfv = 0
+        self.kv = 0.8
+
         # Create subscription for image topic
         self.create_subscription(
             CompressedImage,
@@ -114,6 +123,10 @@ class AutofocusNode(Node):
         # Admittance Control Connection
         self.admittance_publisher = self.create_publisher(
             WrenchStamped, '/admittance_node/delta_twist_cmds', 10)
+        
+        # Debug publisher for focus derivatives and ratio
+        self.debug_publisher = self.create_publisher(
+            String, '/autofocus_debug', 10)
 
         # Control loop timer
         self.control_timer = self.create_timer(
@@ -180,38 +193,92 @@ class AutofocusNode(Node):
         self.autofocus_data.end_effector_pose = end_effector_pose
         self.autofocus_data.focus_value = focus_value
         self.autofocus_data.focus_image = self.bridge.cv2_to_compressed_imgmsg(image_out)
+        
+        # Calculate EMA and ratio using rolling window of previous 20 values        
+        # Add current focus value to rolling window
+        self.focus_values_window.append(self.autofocus_data.focus_value)
+        
+        # Keep only last N_ema values
+        if len(self.focus_values_window) > self.N_ema:
+            self.focus_values_window.pop(0)
+        
+        # Calculate EMA and DEMA
+        if len(self.focus_values_window) == 1:
+            # First value, initialize EMA values
+            self.autofocus_data.ema_focus_value = self.autofocus_data.focus_value
+            self.ema_focus_value2 = self.autofocus_data.focus_value
+            self.autofocus_data.dema_focus_value = self.autofocus_data.focus_value
+            self.previous_dema_focus_value = self.autofocus_data.dema_focus_value
+        else:
+            # Calculate EMA smoothing factor
+            K = 2 / (len(self.focus_values_window) + 1)
+            
+            # Store previous DEMA for ratio calculation
+            self.previous_dema_focus_value = self.autofocus_data.dema_focus_value
+            
+            # Calculate EMA and DEMA
+            self.autofocus_data.ema_focus_value = (K * (self.autofocus_data.focus_value - self.autofocus_data.ema_focus_value)) + self.autofocus_data.ema_focus_value
+            self.ema_focus_value2 = (K * (self.autofocus_data.ema_focus_value - self.ema_focus_value2)) + self.ema_focus_value2
+            self.autofocus_data.dema_focus_value = 2 * self.autofocus_data.ema_focus_value - self.ema_focus_value2
+            
+            # Calculate ratio if we have previous DEMA value
+            self.autofocus_data.ratio = self.autofocus_data.dema_focus_value / self.previous_dema_focus_value
 
+        # Compute dfv and ddfv
+        self.autofocus_data.dfv = self.autofocus_data.dema_focus_value - self.previous_dema_focus_value
+        self.autofocus_data.ddfv = self.autofocus_data.dfv - self.previous_dfv # No smoothing, will consider adding if deemed necessary
+        self.previous_dfv = self.autofocus_data.dfv
+        
+        # Publish debug information
+        debug_msg = String()
+        debug_msg.data = f"fv: {self.autofocus_data.focus_value:.6f}, dfv: {self.autofocus_data.dfv:.6f}, ddfv: {self.autofocus_data.ddfv:.6f}, ratio: {self.autofocus_data.ratio:.6f}"
+        self.debug_publisher.publish(debug_msg)
 
     def control_loop(self):
         # Implement control loop logic here
         if self.autofocus_data is None:
             return
 
-        # Calculate velocity
-
         # Example control logic: publish a dummy twist command
         twist = TwistStamped()
         twist.header.stamp = self.get_clock().now().to_msg()
         twist.header.frame_id = self.autofocus_data.header.frame_id
         twist.twist.linear.x = 0.0
-        twist.twist.linear.y = 0.0
+        # twist.twist.linear.y = 0.0  # Will be set by focus control logic below
         twist.twist.linear.z = 0.0
         twist.twist.angular.x = 0.0
         twist.twist.angular.y = 0.0
         twist.twist.angular.z = 0.0
-
-        # End condition
-        if self.control_step_counter > 100:
+        
+        # Calculate velocity
+        if self.autofocus_data.ddfv < 0 and self.autofocus_data.dfv > 0:
+            twist.twist.linear.y = self.kv * (self.autofocus_data.ratio - 0.5)
+        elif self.autofocus_data.ddfv <0:
+            twist.twist.linear.y = 0.0
             autofocus_enabled_param = rclpy.parameter.Parameter(
                 'autofocus_enabled',
                 rclpy.Parameter.Type.BOOL,
                 False
             )
             self.set_parameters([autofocus_enabled_param])
+        else:
+            if self.autofocus_data.ratio != 0.0:
+                twist.twist.linear.y = self.kv/self.autofocus_data.ratio
+            else:
+                twist.twist.linear.y = 0.0  # Safe fallback when ratio is zero
 
-            self.control_step_counter = 0
-        self.control_step_counter += 1
+        # End condition
+        # if self.control_step_counter > 100:
+        #     autofocus_enabled_param = rclpy.parameter.Parameter(
+        #         'autofocus_enabled',
+        #         rclpy.Parameter.Type.BOOL,
+        #         False
+        #     )
+        #     self.set_parameters([autofocus_enabled_param])
 
+        #     self.control_step_counter = 0
+        # self.control_step_counter += 1
+        
         if self.autofocus_enabled:
             self.twist_publisher.publish(twist)
 
