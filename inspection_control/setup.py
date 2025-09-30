@@ -29,7 +29,7 @@ setup(
             'admittance_control = inspection_control.admittance_control_node:main',
             'focus_monitor = inspection_control.focus_monitor_node:main',
             'multi_speed_autofocus = inspection_control.multi_speed_autofocus_node:main',
-            'autofocus = inspection_control.autofocus_node:main'
+            'autofocus_node = inspection_control.autofocus_node:main'
         ],
     },
 )

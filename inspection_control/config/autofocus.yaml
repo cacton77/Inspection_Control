@@ -1,0 +1,14 @@
+autofocus:
+  ros__parameters:
+    focus_metric: 'sobel'
+    image_topic: '/camera/image_raw/compressed'
+    roi_width: 100
+    roi_height: 100
+    roi_x: 0.5
+    roi_y: 0.5
+    control_rate: 10.0
+    focus_algorithm: default
+    object: ''
+    save_data: false
+    save_path: '/tmp/autofocus_data'
+    autofocus_enabled: false

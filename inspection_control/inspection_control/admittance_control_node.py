@@ -167,10 +167,22 @@ class AdmittanceControlNode(Node):
         """
         Publish TwistStamped message at fixed rate.
         """
+        # If self.current_twist is all 0, return
+        # TODO: Remove this check and implement admittance-based autofocus
+        if not any([
+            self.current_twist.twist.linear.x,
+            self.current_twist.twist.linear.y,
+            self.current_twist.twist.linear.z,
+            self.current_twist.twist.angular.x,
+            self.current_twist.twist.angular.y,
+            self.current_twist.twist.angular.z
+        ]):
+            return
         # Publish the message
         if self.wrench_received:
             self.current_twist.header.stamp = self.get_clock().now().to_msg()
             self.twist_pub.publish(self.current_twist)
+
 
 
 def main(args=None):

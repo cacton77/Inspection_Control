@@ -23,6 +23,9 @@ from viewpoint_generation_interfaces.srv import MoveToPoseStamped
 from std_srvs.srv import Trigger
 
 class AutofocusNode(Node):
+
+    block_callback = False
+
     def __init__(self):
         super().__init__('autofocus_node')
 
@@ -43,7 +46,9 @@ class AutofocusNode(Node):
                 # Save Data Parameters
                 ('object', ''),
                 ('save_data', False),
-                ('save_path', '/tmp/autofocus_data')
+                ('save_path', '/tmp/autofocus_data'),
+                # Trigger
+                ('autofocus_enabled', False)
             ]
         )
 
@@ -69,6 +74,10 @@ class AutofocusNode(Node):
         self.converter_options = ConverterOptions(input_serialization_format='cdr', output_serialization_format='cdr')
         self.writer = SequentialWriter()
 
+        # Enable Autofocus
+        self.control_step_counter = 0
+        self.autofocus_enabled = self.get_parameter('autofocus_enabled').get_parameter_value().bool_value
+
         # Initialize callback groups
         self.service_callback_group = MutuallyExclusiveCallbackGroup()
         self.subscription_callback_group = MutuallyExclusiveCallbackGroup()
@@ -93,14 +102,6 @@ class AutofocusNode(Node):
             callback_group=self.subscription_callback_group
         )
 
-        # Autofocus Trigger
-        self.autofocus_trigger = self.create_service(
-            Trigger,
-            'autofocus_trigger',
-            self.autofocus_trigger_callback,
-            callback_group=self.service_callback_group
-        )
-
         # Move To Pose Connection
         self.pose_client = self.create_client(
             MoveToPoseStamped, 'viewpoint_traversal/move_to_pose_stamped')
@@ -123,11 +124,15 @@ class AutofocusNode(Node):
 
         self.add_on_set_parameters_callback(self.parameter_callback)
 
-    def autofocus_trigger_callback(self, request, response):
-        # Implement autofocus trigger logic here
-        response.success = True
-        response.message = "Autofocus triggered"
-        return response
+    def enable_autofocus(self):
+        # Implement autofocus initiation logic here
+        self.get_logger().info('Beginning autofocus...')
+        self.autofocus_enabled = True
+
+    def disable_autofocus(self):
+        # Implement autofocus termination logic here
+        self.get_logger().info('Ending autofocus...')
+        self.autofocus_enabled = False
 
     def image_callback(self, msg: CompressedImage):
         self.autofocus_data = AutofocusData()
@@ -176,12 +181,13 @@ class AutofocusNode(Node):
         self.autofocus_data.focus_value = focus_value
         self.autofocus_data.focus_image = self.bridge.cv2_to_compressed_imgmsg(image_out)
 
-        self.get_logger().info(f"Focus value: {focus_value}")
 
     def control_loop(self):
         # Implement control loop logic here
         if self.autofocus_data is None:
             return
+
+        # Calculate velocity
 
         # Example control logic: publish a dummy twist command
         twist = TwistStamped()
@@ -189,12 +195,25 @@ class AutofocusNode(Node):
         twist.header.frame_id = self.autofocus_data.header.frame_id
         twist.twist.linear.x = 0.0
         twist.twist.linear.y = 0.0
-        twist.twist.linear.z = -0.1
+        twist.twist.linear.z = 0.0
         twist.twist.angular.x = 0.0
         twist.twist.angular.y = 0.0
         twist.twist.angular.z = 0.0
 
-        self.twist_publisher.publish(twist)
+        # End condition
+        if self.control_step_counter > 100:
+            autofocus_enabled_param = rclpy.parameter.Parameter(
+                'autofocus_enabled',
+                rclpy.Parameter.Type.BOOL,
+                False
+            )
+            self.set_parameters([autofocus_enabled_param])
+
+            self.control_step_counter = 0
+        self.control_step_counter += 1
+
+        if self.autofocus_enabled:
+            self.twist_publisher.publish(twist)
 
     def parameter_callback(self, params):
         for param in params:
@@ -229,6 +248,12 @@ class AutofocusNode(Node):
                 self.save_data = param.value
             elif param.name == 'save_path':
                 self.save_path = param.value
+            elif param.name == 'autofocus_enabled':
+                if not self.autofocus_enabled and param.value:
+                    self.enable_autofocus()
+                elif self.autofocus_enabled and not param.value:
+                    self.disable_autofocus()
+
 
         result = SetParametersResult()
         result.successful = True

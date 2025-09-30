@@ -11,6 +11,11 @@ def generate_launch_description():
     """Generate launch description for teleop_twist_stamped_joy node."""
 
     # Launch arguments
+    autofocus_config_file = DeclareLaunchArgument(
+        'autofocus_config_file',
+        default_value='autofocus.yaml',
+        description='Name of controller configuration file'
+    )
     teleop_config_file = DeclareLaunchArgument(
         'teleop_config_file',
         default_value='xbox_controller.yaml',
@@ -22,6 +27,13 @@ def generate_launch_description():
         description='Name of controller configuration file'
     )
 
+        
+
+    autofocus_config = PathJoinSubstitution([
+        FindPackageShare('inspection_control'),
+        'config',
+        LaunchConfiguration('autofocus_config_file')
+    ])
     teleop_config = PathJoinSubstitution([
         FindPackageShare('inspection_control'),
         'config',
@@ -37,6 +49,15 @@ def generate_launch_description():
         package='joy',
         executable="joy_node",
         name='joy'
+    )
+
+    autofocus_node = Node(
+        package="inspection_control",
+        executable="autofocus_node",
+        name="autofocus",
+        parameters=[autofocus_config],
+        output="screen",
+        emulate_tty=True
     )
 
     # Teleop node
@@ -57,6 +78,8 @@ def generate_launch_description():
         emulate_tty=True
     )
     return LaunchDescription([
+        autofocus_config_file,
+        autofocus_node,
         joy_node,
         teleop_config_file,
         admittance_config_file,

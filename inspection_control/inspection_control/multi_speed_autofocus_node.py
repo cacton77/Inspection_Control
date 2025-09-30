@@ -23,7 +23,7 @@ import rosbag2_py
 
 import numpy as np
 from std_msgs.msg import Float64, Header
-from viewpoint_generation_interfaces.msg import FocusValuefrom inspection_msgs.msg import FocusValue
+from viewpoint_generation_interfaces.msg import FocusValue
 import math
 import csv
 import os
