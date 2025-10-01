@@ -297,12 +297,12 @@ class DepthBGRemove(Node):
             elif p.name == 'publish_pointcloud':
                 self.publish_pointcloud = bool(p.value)
                 if self.publish_pointcloud:
-                    if self.pub_cloud_bbox_out is None:
-                        self.pub_cloud_bbox_out = self.create_publisher(
-                            PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.pub_cloud_bbox_out}_bbox', 10
+                    if self.eoat_pointcloud_publisher is None:
+                        self.eoat_pointcloud_publisher = self.create_publisher(
+                            PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.main_camera_frame}_bbox', 10
                         )
                 if not self.publish_pointcloud:
-                    self.pub_cloud_bbox_out = None
+                    self.eoat_pointcloud_publisher = None
             elif p.name == 'pcd_downsampling_stride':
                 self.pcd_downsampling_stride = max(1, int(p.value))
             elif p.name == 'target_frame':
@@ -313,7 +313,7 @@ class DepthBGRemove(Node):
                     self.main_camera_frame = new_frame
                     if self.publish_pointcloud:
                         # Recreate out publisher with new name
-                        self.pub_cloud_bbox_out = self.create_publisher(
+                        self.eoat_pointcloud_publisher = self.create_publisher(
                             PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.main_camera_frame}_bbox', 10
                         )
         return SetParametersResult(successful=True)
