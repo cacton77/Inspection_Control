@@ -92,6 +92,7 @@ class AutofocusNode(Node):
         # Enable Autofocus
         self.control_step_counter = 0
         self.initial_end_effector_pose = None
+        self.ehc_distance = 0.15
         self.autofocus_type = "ehc"  # EHC is default
         self.autofocus_enabled = self.get_parameter(
             'autofocus_enabled').get_parameter_value().bool_value
@@ -184,9 +185,6 @@ class AutofocusNode(Node):
             end_effector_pose.pose.position.z = transform.transform.translation.z
             end_effector_pose.pose.orientation = transform.transform.rotation
 
-            if self.control_step_counter == 0:
-                self.initial_end_effector_pose = end_effector_pose.pose.position.y
-
         except TransformException as ex:
             self.get_logger().warn(
                 f'Could not transform {msg.header.frame_id} to object_frame: {ex}')
@@ -274,18 +272,25 @@ class AutofocusNode(Node):
         twist.header.stamp = self.get_clock().now().to_msg()
         twist.header.frame_id = self.autofocus_data.header.frame_id
         twist.twist.linear.x = 0.0
-        # twist.twist.linear.y = 0.0  # Will be set by focus control logic below
+        # Twist y set by control logic. It is parallel to camera lens
         twist.twist.linear.z = 0.0
         twist.twist.angular.x = 0.0
         twist.twist.angular.y = 0.0
         twist.twist.angular.z = 0.0
 
         if self.autofocus_type == "ehc":
+            if self.control_step_counter == 0:
+                self.initial_end_effector_pose = self.autofocus_data.end_effector_pose
+
             # Set constant speed of 0.25
             twist.twist.linear.y = 0.25
-            distance = 0.15
             self.control_step_counter += 1
-            if self.initial_end_effector_pose == self.initial_end_effector_pose + distance:
+            # Compute distance travelled, comparing current to initial
+            distance_travelled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
+                                  (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
+                                  (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
+            # current_pose (x, y, z) compared to initial_pose (x, y, z)
+            if distance_travelled > self.ehc_distance:
                 twist.twist.linear.y = 0.0
                 autofocus_enabled_param = rclpy.parameter.Parameter(
                     'autofocus_enabled',
@@ -297,7 +302,8 @@ class AutofocusNode(Node):
 
         elif self.autofocus_type == "adaptive":
             # Calculate velocity
-            if self.autofocus_data.ddfv < 0 and self.autofocus_data.dfv > 0:  # fine search near top
+            # fine search near top. Thresholded at 2 to prevent false positives for noise changes
+            if self.autofocus_data.ddfv < 2 and self.autofocus_data.dfv > 2:
                 twist.twist.linear.y = self.kv * \
                     (self.autofocus_data.ratio - 0.5)
             elif self.autofocus_data.ddfv < 0 and self.previous_dfv > 1 and self.autofocus_data.dfv < -1:  # ddfv<0 and dfv=0

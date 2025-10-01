@@ -27,8 +27,6 @@ def generate_launch_description():
         description='Name of controller configuration file'
     )
 
-        
-
     autofocus_config = PathJoinSubstitution([
         FindPackageShare('inspection_control'),
         'config',
