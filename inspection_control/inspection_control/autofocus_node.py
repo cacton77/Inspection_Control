@@ -23,6 +23,7 @@ from viewpoint_generation_interfaces.srv import MoveToPoseStamped
 
 from std_srvs.srv import Trigger
 
+
 class AutofocusNode(Node):
 
     block_callback = False
@@ -54,30 +55,46 @@ class AutofocusNode(Node):
         )
 
         # Focus Metric Parameters
-        self.focus_metric = self.get_parameter('focus_metric').get_parameter_value().string_value
-        self.image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
-        self.roi_width = self.get_parameter('roi_width').get_parameter_value().integer_value
-        self.roi_height = self.get_parameter('roi_height').get_parameter_value().integer_value
-        self.roi_x = self.get_parameter('roi_x').get_parameter_value().double_value
-        self.roi_y = self.get_parameter('roi_y').get_parameter_value().double_value
+        self.focus_metric = self.get_parameter(
+            'focus_metric').get_parameter_value().string_value
+        self.image_topic = self.get_parameter(
+            'image_topic').get_parameter_value().string_value
+        self.roi_width = self.get_parameter(
+            'roi_width').get_parameter_value().integer_value
+        self.roi_height = self.get_parameter(
+            'roi_height').get_parameter_value().integer_value
+        self.roi_x = self.get_parameter(
+            'roi_x').get_parameter_value().double_value
+        self.roi_y = self.get_parameter(
+            'roi_y').get_parameter_value().double_value
 
         # Focus Algorithm Parameters
-        self.focus_algorithm = self.get_parameter('focus_algorithm').get_parameter_value().string_value
-        self.control_rate = self.get_parameter('control_rate').get_parameter_value().double_value
+        self.focus_algorithm = self.get_parameter(
+            'focus_algorithm').get_parameter_value().string_value
+        self.control_rate = self.get_parameter(
+            'control_rate').get_parameter_value().double_value
 
         # ROS Bag2 Writer Initialization
-        self.object = self.get_parameter('object').get_parameter_value().string_value
+        self.object = self.get_parameter(
+            'object').get_parameter_value().string_value
         self.count = 0
-        self.save_data = self.get_parameter('save_data').get_parameter_value().bool_value
-        self.save_path = self.get_parameter('save_path').get_parameter_value().string_value
-        
-        self.storage_options = StorageOptions(uri=self.save_path, storage_id='sqlite3')
-        self.converter_options = ConverterOptions(input_serialization_format='cdr', output_serialization_format='cdr')
+        self.save_data = self.get_parameter(
+            'save_data').get_parameter_value().bool_value
+        self.save_path = self.get_parameter(
+            'save_path').get_parameter_value().string_value
+
+        self.storage_options = StorageOptions(
+            uri=self.save_path, storage_id='sqlite3')
+        self.converter_options = ConverterOptions(
+            input_serialization_format='cdr', output_serialization_format='cdr')
         self.writer = SequentialWriter()
 
         # Enable Autofocus
         self.control_step_counter = 0
-        self.autofocus_enabled = self.get_parameter('autofocus_enabled').get_parameter_value().bool_value
+        self.initial_end_effector_pose = None
+        self.autofocus_type = "ehc"  # EHC is default
+        self.autofocus_enabled = self.get_parameter(
+            'autofocus_enabled').get_parameter_value().bool_value
 
         # Initialize callback groups
         self.service_callback_group = MutuallyExclusiveCallbackGroup()
@@ -123,15 +140,15 @@ class AutofocusNode(Node):
         # Admittance Control Connection
         self.admittance_publisher = self.create_publisher(
             WrenchStamped, '/admittance_node/delta_twist_cmds', 10)
-        
+
         # Debug publisher for focus derivatives and ratio
         self.debug_publisher = self.create_publisher(
             String, '/autofocus_debug', 10)
 
         # Control loop timer
         self.control_timer = self.create_timer(
-            1.0 / self.control_rate, 
-            self.control_loop, 
+            1.0 / self.control_rate,
+            self.control_loop,
             callback_group=self.timer_callback_group
         )
 
@@ -167,11 +184,16 @@ class AutofocusNode(Node):
             end_effector_pose.pose.position.z = transform.transform.translation.z
             end_effector_pose.pose.orientation = transform.transform.rotation
 
+            if self.control_step_counter == 0:
+                self.initial_end_effector_pose = end_effector_pose.pose.position.y
+
         except TransformException as ex:
-            self.get_logger().warn(f'Could not transform {msg.header.frame_id} to object_frame: {ex}')
+            self.get_logger().warn(
+                f'Could not transform {msg.header.frame_id} to object_frame: {ex}')
             return
 
-        cv_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        cv_image = self.bridge.compressed_imgmsg_to_cv2(
+            msg, desired_encoding='bgr8')
 
         # Crop the image based on ROI parameters
         # Calculate the pixel coordinates for the ROI
@@ -192,16 +214,17 @@ class AutofocusNode(Node):
 
         self.autofocus_data.end_effector_pose = end_effector_pose
         self.autofocus_data.focus_value = focus_value
-        self.autofocus_data.focus_image = self.bridge.cv2_to_compressed_imgmsg(image_out)
-        
-        # Calculate EMA and ratio using rolling window of previous 20 values        
+        self.autofocus_data.focus_image = self.bridge.cv2_to_compressed_imgmsg(
+            image_out)
+
+        # Calculate EMA and ratio using rolling window of previous 20 values
         # Add current focus value to rolling window
         self.focus_values_window.append(self.autofocus_data.focus_value)
-        
+
         # Keep only last N_ema values
         if len(self.focus_values_window) > self.N_ema:
             self.focus_values_window.pop(0)
-        
+
         # Calculate EMA and DEMA
         if len(self.focus_values_window) == 1:
             # First value, initialize EMA values
@@ -212,23 +235,30 @@ class AutofocusNode(Node):
         else:
             # Calculate EMA smoothing factor
             K = 2 / (len(self.focus_values_window) + 1)
-            
-            # Store previous DEMA for ratio calculation
-            self.previous_dema_focus_value = self.autofocus_data.dema_focus_value
-            
-            # Calculate EMA and DEMA
-            self.autofocus_data.ema_focus_value = (K * (self.autofocus_data.focus_value - self.autofocus_data.ema_focus_value)) + self.autofocus_data.ema_focus_value
-            self.ema_focus_value2 = (K * (self.autofocus_data.ema_focus_value - self.ema_focus_value2)) + self.ema_focus_value2
-            self.autofocus_data.dema_focus_value = 2 * self.autofocus_data.ema_focus_value - self.ema_focus_value2
-            
-            # Calculate ratio if we have previous DEMA value
-            self.autofocus_data.ratio = self.autofocus_data.dema_focus_value / self.previous_dema_focus_value
 
-        # Compute dfv and ddfv
-        self.autofocus_data.dfv = self.autofocus_data.dema_focus_value - self.previous_dema_focus_value
-        self.autofocus_data.ddfv = self.autofocus_data.dfv - self.previous_dfv # No smoothing, will consider adding if deemed necessary
+            # Calculate EMA and DEMA
+            self.autofocus_data.ema_focus_value = (
+                K * (self.autofocus_data.focus_value - self.autofocus_data.ema_focus_value)) + self.autofocus_data.ema_focus_value
+            self.ema_focus_value2 = (
+                K * (self.autofocus_data.ema_focus_value - self.ema_focus_value2)) + self.ema_focus_value2
+            self.autofocus_data.dema_focus_value = 2 * \
+                self.autofocus_data.ema_focus_value - self.ema_focus_value2
+
+            # Calculate ratio using current and previous DEMA values
+            self.autofocus_data.ratio = self.autofocus_data.dema_focus_value / \
+                self.previous_dema_focus_value
+
+        # Compute dfv and ddfv using current and previous DEMA values
+        self.autofocus_data.dfv = self.autofocus_data.dema_focus_value - \
+            self.previous_dema_focus_value
+        # No smoothing, will consider adding if deemed necessary
+        self.autofocus_data.ddfv = self.autofocus_data.dfv - self.previous_dfv
+
+        # Store current dfv for next iteration
         self.previous_dfv = self.autofocus_data.dfv
-        
+        # Store current DEMA for next iteration
+        self.previous_dema_focus_value = self.autofocus_data.dema_focus_value
+
         # Publish debug information
         debug_msg = String()
         debug_msg.data = f"fv: {self.autofocus_data.focus_value:.6f}, dfv: {self.autofocus_data.dfv:.6f}, ddfv: {self.autofocus_data.ddfv:.6f}, ratio: {self.autofocus_data.ratio:.6f}"
@@ -249,23 +279,39 @@ class AutofocusNode(Node):
         twist.twist.angular.x = 0.0
         twist.twist.angular.y = 0.0
         twist.twist.angular.z = 0.0
-        
-        # Calculate velocity
-        if self.autofocus_data.ddfv < 0 and self.autofocus_data.dfv > 0:
-            twist.twist.linear.y = self.kv * (self.autofocus_data.ratio - 0.5)
-        elif self.autofocus_data.ddfv <0:
-            twist.twist.linear.y = 0.0
-            autofocus_enabled_param = rclpy.parameter.Parameter(
-                'autofocus_enabled',
-                rclpy.Parameter.Type.BOOL,
-                False
-            )
-            self.set_parameters([autofocus_enabled_param])
-        else:
-            if self.autofocus_data.ratio != 0.0:
+
+        if self.autofocus_type == "ehc":
+            # Set constant speed of 0.25
+            twist.twist.linear.y = 0.25
+            distance = 0.15
+            self.control_step_counter += 1
+            if self.initial_end_effector_pose == self.initial_end_effector_pose + distance:
+                twist.twist.linear.y = 0.0
+                autofocus_enabled_param = rclpy.parameter.Parameter(
+                    'autofocus_enabled',
+                    rclpy.Parameter.Type.BOOL,
+                    False
+                )
+                self.control_step_counter = 0
+                self.set_parameters([autofocus_enabled_param])
+
+        elif self.autofocus_type == "adaptive":
+            # Calculate velocity
+            if self.autofocus_data.ddfv < 0 and self.autofocus_data.dfv > 0:  # fine search near top
+                twist.twist.linear.y = self.kv * \
+                    (self.autofocus_data.ratio - 0.5)
+            elif self.autofocus_data.ddfv < 0 and self.previous_dfv > 1 and self.autofocus_data.dfv < -1:  # ddfv<0 and dfv=0
+                twist.twist.linear.y = 0.0
+                autofocus_enabled_param = rclpy.parameter.Parameter(
+                    'autofocus_enabled',
+                    rclpy.Parameter.Type.BOOL,
+                    False
+                )
+                self.set_parameters([autofocus_enabled_param])
+            else:   # coarse search
                 twist.twist.linear.y = self.kv/self.autofocus_data.ratio
-            else:
-                twist.twist.linear.y = 0.0  # Safe fallback when ratio is zero
+                if self.autofocus_data.ratio == 0.0 or self.autofocus_data.ratio == float('inf'):
+                    twist.twist.linear.y = 0.2  # Hardcode to keep going
 
         # End condition
         # if self.control_step_counter > 100:
@@ -278,7 +324,7 @@ class AutofocusNode(Node):
 
         #     self.control_step_counter = 0
         # self.control_step_counter += 1
-        
+
         if self.autofocus_enabled:
             self.twist_publisher.publish(twist)
 
@@ -321,25 +367,26 @@ class AutofocusNode(Node):
                 elif self.autofocus_enabled and not param.value:
                     self.disable_autofocus()
 
-
         result = SetParametersResult()
         result.successful = True
 
         return result
 
+
 def main():
     rclpy.init()
     node = AutofocusNode()
-    
+
     # Use MultiThreadedExecutor with at least 2 threads
     executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
-    
+
     try:
         executor.spin()
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
