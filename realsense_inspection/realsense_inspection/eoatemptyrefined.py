@@ -68,39 +68,42 @@ class DepthBGRemove(Node):
         self.declare_parameter('depth_topic', '/camera/d405_camera/depth/image_rect_raw')
         self.declare_parameter('camera_info_topic', '/camera/d405_camera/depth/camera_info')
         self.declare_parameter('bounding_box_topic', '/viewpoint_generation/bounding_box_marker')
-        self.declare_parameter('near_m', 0.07) # TODO: dmap_filter_min
-        self.declare_parameter('far_m', 0.50) # TODO: dmap_filter_max
+        self.declare_parameter('dmap_filter_min', 0.07) 
+        self.declare_parameter('dmap_filter_max', 0.50) 
         self.declare_parameter('viz_enable', True)
         self.declare_parameter('publish_pointcloud', True)
-        self.declare_parameter('cloud_stride', 1) # TODO: pcd_downsampling_stride
+        self.declare_parameter('pcd_downsampling_stride', 1)
         self.declare_parameter('target_frame', 'object_frame')
 
         # Bounding Box Parameters
-        self.declare_parameter('bbox_enable', True) # TODO: Remove this param
-        self.declare_parameter('bbox_output_frame', 'eoat_camera_link')  # TODO: main_camera_frame
+        
+        self.declare_parameter('main_camera_frame', 'eoat_camera_link')  
 
-        # TODO: Change variable names according to param changes
+        
         self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
         self.camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
         self.bounding_box_topic = self.get_parameter('bounding_box_topic').get_parameter_value().string_value
-        self.near_m = float(self.get_parameter('near_m').value)
-        self.far_m  = float(self.get_parameter('far_m').value)
+        self.dmap_filter_min = float(self.get_parameter('dmap_filter_min').value)
+        self.dmap_filter_max  = float(self.get_parameter('dmap_filter_max').value)
         self.viz_enable = bool(self.get_parameter('viz_enable').value)
         self.publish_pointcloud = bool(self.get_parameter('publish_pointcloud').value)
-        self.cloud_stride = int(self.get_parameter('cloud_stride').value)
+        self.pcd_downsampling_stride = int(self.get_parameter('pcd_downsampling_stride').value)
         self.target_frame = self.get_parameter('target_frame').get_parameter_value().string_value
 
-        self.bbox_enable = bool(self.get_parameter('bbox_enable').value)
+       
          # ---- Initialize bbox fields so they're always present ----
         # Use infinities so "no box yet" behaves like "pass-through".
-        # TODO: Simplify from 6 variables to 2: self.bbox_min = (x_min, y_min, z_min), self.bbox_max = (x_max, ...)
-        self.bbox_min_x = -float('inf')
-        self.bbox_max_x =  float('inf')
-        self.bbox_min_y = -float('inf')
-        self.bbox_max_y =  float('inf')
-        self.bbox_min_z = -float('inf')
-        self.bbox_max_z =  float('inf')
-        self.bbox_output_frame = self.get_parameter('bbox_output_frame').get_parameter_value().string_value 
+     
+        #self.bbox_max_x =  float('inf')
+        #self.bbox_min_y = -float('inf')
+        #self.bbox_max_y =  float('inf')
+        #self.bbox_min_z = -float('inf')
+        #self.bbox_max_z =  float('inf')
+        self.bbox_min = np.array([-float('inf'), -float('inf'), -float('inf')], dtype=float)  # [xmin, ymin, zmin]
+        self.bbox_max = np.array([ float('inf'),  float('inf'),  float('inf')], dtype=float)  # [xmax, ymax, zmax]
+        #xmin, ymin, zmin = self.bbox_min
+        #xmax, ymax, zmax = self.bbox_max
+        self.main_camera_frame = self.get_parameter('main_camera_frame').get_parameter_value().string_value 
         # Live tuning
         self.add_on_set_parameters_callback(self._on_param_update)
 
@@ -126,9 +129,9 @@ class DepthBGRemove(Node):
         self.create_timer(0.1, self.process_dmap, callback_group=timer_cb_group)
 
         # Pubs
-        # TODO: Look into convention for naming point cloud topics
-        self.pub_cloud_bbox_out = self.create_publisher(
-            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.bbox_output_frame}_bbox', 10
+        
+        self.eoat_pointcloud_publisher = self.create_publisher(
+            PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.main_camera_frame}_bbox', 10
         ) if self.publish_pointcloud else None
 
         self.get_logger().info(
@@ -136,12 +139,12 @@ class DepthBGRemove(Node):
             f'  depth_topic={self.depth_topic}\n'
             f'  camera_info_topic={self.camera_info_topic}\n'
             f'  bounding_box_topic={self.bounding_box_topic}\n'
-            f'  near_m={self.near_m:.3f}, far_m={self.far_m:.3f}\n'
+            f'  dmap_filter_min={self.dmap_filter_min:.3f}, dmap_filter_max={self.dmap_filter_max:.3f}\n'
             f'  viz_enable={self.viz_enable}, publish_pointcloud={self.publish_pointcloud}\n'
-            f'  cloud_stride={self.cloud_stride}\n'
+            f'  pcd_downsampling_stride={self.pcd_downsampling_stride}\n'
             f'  target_frame={self.target_frame}'
-            f'  bbox_enable={self.bbox_enable}\n'
-            f'  bbox_output_frame={self.bbox_output_frame}'
+           
+            f'  main_camera_frame={self.main_camera_frame}'
         )
 
     # Camera intrinsics
@@ -161,16 +164,17 @@ class DepthBGRemove(Node):
         if abs(msg.pose.orientation.x) > 1e-3 or abs(msg.pose.orientation.y) > 1e-3 or abs(msg.pose.orientation.z) > 1e-3:
             self.get_logger().warn(f'Ignoring non-axis-aligned bounding box with orientation {msg.pose.orientation}')
             return
-        self.bbox_enable = True
+        
         cx, cy, cz = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
         sx, sy, sz = msg.scale.x, msg.scale.y, msg.scale.z
-        # TODO: Update to 2 variables
-        self.bbox_min_x = cx - 0.5 * sx
-        self.bbox_max_x = cx + 0.5 * sx
-        self.bbox_min_y = cy - 0.5 * sy
-        self.bbox_max_y = cy + 0.5 * sy
-        self.bbox_min_z = cz - 0.5 * sz
-        self.bbox_max_z = cz + 0.5 * sz
+       
+        # Half dimensions
+        half_sizes = np.array([sx, sy, sz], dtype=float) * 0.5
+        center     = np.array([cx, cy, cz], dtype=float)
+
+        # Now update bbox as arrays 
+        self.bbox_min = center - half_sizes
+        self.bbox_max = center + half_sizes
 
     def on_depth(self, msg: Image):
         # Convert ROS Image -> numpy
@@ -179,40 +183,39 @@ class DepthBGRemove(Node):
     def process_dmap(self):
         if not self.depth_msg:
             return
-        # TODO: Remove next line and set all msg to self.depth_msg
-        msg = self.depth_msg
+     
+       # msg = self.depth_msg
         # Convert ROS Image -> numpy
-        depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        depth = self.bridge.imgmsg_to_cv2(self.depth_msg, desired_encoding='passthrough')
 
         # Normalize to meters
-        if msg.encoding in ('16UC1', 'mono16'):
+        if self.depth_msg.encoding in ('16UC1', 'mono16'):
             depth_m = depth.astype(np.float32) * 1e-3
-        elif msg.encoding == '32FC1':
+        elif self.depth_msg.encoding == '32FC1':
             depth_m = depth.astype(np.float32)
         else:
             depth_m = depth.astype(np.float32)
 
         # Build mask
         valid = np.isfinite(depth_m) & (depth_m > 0.0)
-        mask = valid & (depth_m >= self.near_m) & (depth_m <= self.far_m)
+        mask = valid & (depth_m >= self.dmap_filter_min) & (depth_m <= self.dmap_filter_max)
 
         # Masked depth
         masked_m = np.where(mask, depth_m, 0.0).astype(np.float32)
 
         # Point cloud (if enabled and we have intrinsics)
-        if self.K:
+        if self.K is not None:
             fx, fy = self.K[0, 0], self.K[1, 1]
             cx, cy = self.K[0, 2], self.K[1, 2]
 
             h, w = masked_m.shape
-            stride = max(1, self.cloud_stride)
+            stride = max(1, self.pcd_downsampling_stride)
 
             ys, xs = np.where(mask)
-            # TODO: We don't want to return before publishing a blank point cloud. 
-            # If it is blank, we don't need to run the transforms and cropping though.
-            if xs.size == 0:
-             #   self._publish_bbox_marker(msg.header.stamp)
-                return
+           
+            #if xs.size == 0:
+             #   self._publish_bbox_marker(self.depth_msg.header.stamp)
+              #  return
             if stride > 1:
                 ys = ys[::stride]; xs = xs[::stride]
 
@@ -220,11 +223,9 @@ class DepthBGRemove(Node):
             x = (xs.astype(np.float32) - cx) * z / fx    # (N,)
             y = (ys.astype(np.float32) - cy) * z / fy    # (N,)
             points = np.stack([x, y, z], axis=1)            # (N,3)
-            # Publish cloud in source (camera) frame
-            src_frame = msg.header.frame_id
+            src_frame = self.depth_msg.header.frame_id
             
-            # TODO: If there are points alter the next line
-            if True:
+            if points.shape[0] > 0:
                 try:
                     T = self.tf_buffer.lookup_transform(
                         self.target_frame, src_frame, Time(sec=0, nanosec=0), timeout=Duration(seconds=0.001))
@@ -239,22 +240,28 @@ class DepthBGRemove(Node):
                     return
                 
                 # --- Axis-aligned bounding-box filter in target_frame ---
-                # TODO: Remove self.bbox_enable and use 2 variables for bounds instead of 6
-                if self.bbox_enable: 
-                    X, Y, Z = pts_tgt[:, 0], pts_tgt[:, 1], pts_tgt[:, 2]
-                    sel = (
-                        (X >= self.bbox_min_x) & (X <= self.bbox_max_x) &
-                        (Y >= self.bbox_min_y) & (Y <= self.bbox_max_y) &
-                        (Z >= self.bbox_min_z) & (Z <= self.bbox_max_z)
-                    )
+                
+                 
+               # X, Y, Z = pts_tgt[:, 0], pts_tgt[:, 1], pts_tgt[:, 2]
+                #sel = (
+                 #   (X >= self.bbox_min_x) & (X <= self.bbox_max_x) &
+                 #   (Y >= self.bbox_min_y) & (Y <= self.bbox_max_y) &
+                 #   (Z >= self.bbox_min_z) & (Z <= self.bbox_max_z)
+              #  )
+                # Check all 3 coordinates at once
+                sel = np.all((pts_tgt >= self.bbox_min) & (pts_tgt <= self.bbox_max), axis=1)
 
-                    pts_bbox = np.ascontiguousarray(pts_tgt[sel])
+              # Filter points
+                pts_bbox = np.ascontiguousarray(pts_tgt[sel])
 
 
-                if self.bbox_output_frame: 
+                pts_bbox = np.ascontiguousarray(pts_tgt[sel])
+
+
+                if self.main_camera_frame: 
                     try:
                         T_out = self.tf_buffer.lookup_transform(
-                            self.bbox_output_frame, self.target_frame, Time(sec=0, nanosec=0), timeout=Duration(seconds=0.001))
+                            self.main_camera_frame, self.target_frame, Time(sec=0, nanosec=0), timeout=Duration(seconds=0.001))
                         q_out = T_out.transform.rotation
                         R_out = _quat_to_R_xyzw(q_out.x, q_out.y, q_out.z, q_out.w)
                         t_out = T_out.transform.translation
@@ -263,25 +270,24 @@ class DepthBGRemove(Node):
                         points = pts_bbox_out
 
                     except TransformException as e:
-                        self.get_logger().warn(f'No TF {self.bbox_output_frame} <- {self.target_frame} at stamp: {e}')
-                    # self._publish_bbox_marker(msg.header.stamp)
+                        self.get_logger().warn(f'No TF {self.main_camera_frame} <- {self.target_frame} at stamp: {e}')
+                    # self._publish_bbox_marker(self.depth_msg.header.stamp)
                         return              
 
-        # TODO: Publish final point cloud here
         pcd2_msg = make_pointcloud2(
-            points, frame_id=self.bbox_output_frame, stamp=msg.header.stamp
+            points, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp
         )
 
-        self.pointcloud_publisher.publish(pcd2_msg)
+        self.eoat_pointcloud_publisher.publish(pcd2_msg)
 
 
     # Param updates
     def _on_param_update(self, params):
         for p in params:
-            if p.name == 'near_m':
-                self.near_m = float(p.value); self.get_logger().info(f'near_m -> {self.near_m:.3f} m')
-            elif p.name == 'far_m':
-                self.far_m = float(p.value); self.get_logger().info(f'far_m  -> {self.far_m:.3f} m')
+            if p.name == 'dmap_filter_min':
+                self.dmap_filter_min = float(p.value); self.get_logger().info(f'dmap_filter_min -> {self.dmap_filter_min:.3f} m')
+            elif p.name == 'dmap_filter_max':
+                self.dmap_filter_max = float(p.value); self.get_logger().info(f'dmap_filter_max  -> {self.dmap_filter_max:.3f} m')
           #  elif p.name == 'viz_enable':
          #       self.viz_enable = bool(p.value)
           #      if self.viz_enable and self.pub_viz is None:
@@ -293,24 +299,22 @@ class DepthBGRemove(Node):
                 if self.publish_pointcloud:
                     if self.pub_cloud_bbox_out is None:
                         self.pub_cloud_bbox_out = self.create_publisher(
-                            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.pub_cloud_bbox_out}_bbox', 10
+                            PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.pub_cloud_bbox_out}_bbox', 10
                         )
                 if not self.publish_pointcloud:
                     self.pub_cloud_bbox_out = None
-            elif p.name == 'cloud_stride':
-                self.cloud_stride = max(1, int(p.value))
+            elif p.name == 'pcd_downsampling_stride':
+                self.pcd_downsampling_stride = max(1, int(p.value))
             elif p.name == 'target_frame':
                 self.target_frame = str(p.value)
-            elif p.name == 'bbox_enable':
-                self.bbox_enable = bool(p.value)
-            elif p.name == 'bbox_output_frame':  
+            elif p.name == 'main_camera_frame':  
                 new_frame = str(p.value)
-                if new_frame != self.bbox_output_frame:
-                    self.bbox_output_frame = new_frame
+                if new_frame != self.main_camera_frame:
+                    self.main_camera_frame = new_frame
                     if self.publish_pointcloud:
                         # Recreate out publisher with new name
                         self.pub_cloud_bbox_out = self.create_publisher(
-                            PointCloud2, f'/camera/d405_camera/depth/foreground_points_{self.bbox_output_frame}_bbox', 10
+                            PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.main_camera_frame}_bbox', 10
                         )
         return SetParametersResult(successful=True)
 
