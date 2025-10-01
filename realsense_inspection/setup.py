@@ -34,6 +34,7 @@ setup(
             'pointcloudeoatreducedpub = realsense_inspection.pointcloudeoatreducedpub:main',
             'boundingboxempty = realsense_inspection.boundingboxempty:main',
             'eoatempty = realsense_inspection.eoatempty:main',
+            'eoatemptyrefined= realsense_inspection.eoatemptyrefined:main'
         ],
     },
 )
