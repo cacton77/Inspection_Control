@@ -92,7 +92,7 @@ class AutofocusNode(Node):
         # Enable Autofocus
         self.control_step_counter = 0
         self.initial_end_effector_pose = None
-        self.ehc_distance = 0.15
+        self.ehc_distance = 0.05
         self.autofocus_type = "ehc"  # EHC is default
         self.autofocus_enabled = self.get_parameter(
             'autofocus_enabled').get_parameter_value().bool_value
@@ -159,6 +159,8 @@ class AutofocusNode(Node):
     def enable_autofocus(self):
         # Implement autofocus initiation logic here
         self.get_logger().info('Beginning autofocus...')
+        # Reset initial pose for fresh start
+        self.initial_end_effector_pose = None
         self.autofocus_enabled = True
 
     def disable_autofocus(self):
@@ -216,6 +218,57 @@ class AutofocusNode(Node):
         self.autofocus_data.focus_image = self.bridge.cv2_to_compressed_imgmsg(
             image_out)
 
+    def adaptive(self):
+        # Calculate velocity
+        # fine search near top. Thresholded at 2 to prevent false positives for noise changes
+        if self.autofocus_data.ddfv < 2 and self.autofocus_data.dfv > 2:
+            self.get_logger().info('Fine')
+            v = self.kv * \
+                (self.autofocus_data.ratio - 0.5)
+        elif self.autofocus_data.ddfv < 0 and self.previous_dfv > 1 and self.autofocus_data.dfv < -1:  # ddfv<0 and dfv=0
+            self.get_logger().info('Done')
+            v = 0.0
+            autofocus_enabled_param = rclpy.parameter.Parameter(
+                'autofocus_enabled',
+                rclpy.Parameter.Type.BOOL,
+                False
+            )
+            self.set_parameters([autofocus_enabled_param])
+        else:   # coarse search
+            self.get_logger().info('Coarse')
+            v = self.kv/self.autofocus_data.ratio
+            if self.autofocus_data.ratio == 0.0 or self.autofocus_data.ratio == float('inf'):
+                v = 0.2  # Hardcode to keep going
+        return v
+
+    def ehc(self):
+        # Safety check to ensure we have data
+        if self.autofocus_data is None:
+            return 0.0
+
+        v = 0.25
+        # Initialize starting position on first call
+        if self.initial_end_effector_pose is None:
+            self.initial_end_effector_pose = self.autofocus_data.end_effector_pose
+        # Compute distance travelled, comparing current to initial
+        distance_travelled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
+                              (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
+                              (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
+        # self.get_logger().info(
+        #     f'EHC: distance_travelled: {distance_travelled:.6f}')
+        # current_pose (x, y, z) compared to initial_pose (x, y, z)
+        if distance_travelled > self.ehc_distance:
+            v = 0.0
+            autofocus_enabled_param = rclpy.parameter.Parameter(
+                'autofocus_enabled',
+                rclpy.Parameter.Type.BOOL,
+                False
+            )
+            # Reset for next autofocus run
+            self.initial_end_effector_pose = None
+            self.set_parameters([autofocus_enabled_param])
+        return v
+
     def control_loop(self):
         # Calculate EMA and ratio using rolling window of previous 20 values
         # Add current focus value to rolling window
@@ -265,63 +318,24 @@ class AutofocusNode(Node):
         self.debug_publisher.publish(debug_msg)
 
         if self.autofocus_enabled:
-            # Example control logic: publish a dummy twist command
+            # Only run algorithm when autofocus is active
+            if self.focus_algorithm == "default":
+                v = self.ehc()
+            elif self.focus_algorithm == "adaptive":
+                v = self.adaptive()
+            elif self.focus_algorithm == "ehc":
+                v = self.ehc()
+
             twist = TwistStamped()
             twist.header.stamp = self.get_clock().now().to_msg()
             twist.header.frame_id = self.autofocus_data.header.frame_id
             twist.twist.linear.x = 0.0
-            # Twist y set by control logic. It is parallel to camera lens
-            twist.twist.linear.z = 0.0
+            # Twist z set by control logic. It is parallel to camera lens
+            twist.twist.linear.z = float(v)
+            twist.twist.linear.y = 0.0
             twist.twist.angular.x = 0.0
             twist.twist.angular.y = 0.0
             twist.twist.angular.z = 0.0
-
-            if self.autofocus_type == "ehc":
-                twist.twist.linear.y = 0.25
-                # Manual counter seems simpler and more reliable at this time
-                if self.control_step_counter > 100:
-                    autofocus_enabled_param = rclpy.parameter.Parameter(
-                        'autofocus_enabled',
-                        rclpy.Parameter.Type.BOOL,
-                        False
-                    )
-                    self.set_parameters([autofocus_enabled_param])
-                    self.control_step_counter = 0
-                # if self.control_step_counter == 0:
-                #     self.initial_end_effector_pose = self.autofocus_data.end_effector_pose
-                # # Compute distance travelled, comparing current to initial
-                # distance_travelled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
-                #                       (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
-                #                       (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
-                # # current_pose (x, y, z) compared to initial_pose (x, y, z)
-                # if distance_travelled > self.ehc_distance:
-                #     twist.twist.linear.y = 0.0
-                #     autofocus_enabled_param = rclpy.parameter.Parameter(
-                #         'autofocus_enabled',
-                #         rclpy.Parameter.Type.BOOL,
-                #         False
-                #     )
-                #     self.control_step_counter = 0
-                #     self.set_parameters([autofocus_enabled_param])
-
-            elif self.autofocus_type == "adaptive":
-                # Calculate velocity
-                # fine search near top. Thresholded at 2 to prevent false positives for noise changes
-                if self.autofocus_data.ddfv < 2 and self.autofocus_data.dfv > 2:
-                    twist.twist.linear.y = self.kv * \
-                        (self.autofocus_data.ratio - 0.5)
-                elif self.autofocus_data.ddfv < 0 and self.previous_dfv > 1 and self.autofocus_data.dfv < -1:  # ddfv<0 and dfv=0
-                    twist.twist.linear.y = 0.0
-                    autofocus_enabled_param = rclpy.parameter.Parameter(
-                        'autofocus_enabled',
-                        rclpy.Parameter.Type.BOOL,
-                        False
-                    )
-                    self.set_parameters([autofocus_enabled_param])
-                else:   # coarse search
-                    twist.twist.linear.y = self.kv/self.autofocus_data.ratio
-                    if self.autofocus_data.ratio == 0.0 or self.autofocus_data.ratio == float('inf'):
-                        twist.twist.linear.y = 0.2  # Hardcode to keep going
 
             self.control_step_counter += 1
             self.twist_publisher.publish(twist)
