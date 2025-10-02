@@ -351,7 +351,7 @@ class DepthBGRemove(Node):
                          pose.pose.position.y = float(centroid[1])
                          pose.pose.position.z = float(centroid[2])
                          pose.pose.orientation = _quaternion_from_z(normal)
-                        self.normal_estimate_pub.publish(pose)
+                         self.normal_estimate_pub.publish(pose)
                         
                        
                  
