@@ -35,7 +35,8 @@ setup(
             'boundingboxempty = realsense_inspection.boundingboxempty:main',
             'eoatempty = realsense_inspection.eoatempty:main',
             'eoatemptyrefined= realsense_inspection.eoatemptyrefined:main',
-            'eoatrefined_normalestimation = realsense_inspection.eoatrefined_normalestimation:main'
+            'eoatrefined_normalestimation = realsense_inspection.eoatrefined_normalestimation:main',
+            'eoatgoalposerefined = realsense_inspection.eoatgoalposerefined:main'
         ],
     },
 )
