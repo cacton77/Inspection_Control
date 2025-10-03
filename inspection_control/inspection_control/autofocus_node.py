@@ -92,10 +92,11 @@ class AutofocusNode(Node):
         # Enable Autofocus
         self.control_step_counter = 0
         self.initial_end_effector_pose = None
-        self.ehc_distance = 0.05
+        self.ehc_distance = 0.1
         self.autofocus_type = "ehc"  # EHC is default
         self.autofocus_enabled = self.get_parameter(
             'autofocus_enabled').get_parameter_value().bool_value
+        self.fine_mode = False
 
         # Initialize callback groups
         self.service_callback_group = MutuallyExclusiveCallbackGroup()
@@ -120,6 +121,7 @@ class AutofocusNode(Node):
         self.previous_dema_focus_value = 0
         self.previous_dfv = 0
         self.kv = 0.8
+        self.ddfv = 0
 
         # Create subscription for image topic
         self.create_subscription(
@@ -220,25 +222,34 @@ class AutofocusNode(Node):
 
     def adaptive(self):
         # Calculate velocity
-        # fine search near top. Thresholded at 2 to prevent false positives for noise changes
-        if self.autofocus_data.ddfv < 2 and self.autofocus_data.dfv > 2:
-            self.get_logger().info('Fine')
-            v = self.kv * \
-                (self.autofocus_data.ratio - 0.5)
-        elif self.autofocus_data.ddfv < 0 and self.previous_dfv > 1 and self.autofocus_data.dfv < -1:  # ddfv<0 and dfv=0
-            self.get_logger().info('Done')
-            v = 0.0
-            autofocus_enabled_param = rclpy.parameter.Parameter(
-                'autofocus_enabled',
-                rclpy.Parameter.Type.BOOL,
-                False
-            )
-            self.set_parameters([autofocus_enabled_param])
-        else:   # coarse search
-            self.get_logger().info('Coarse')
-            v = self.kv/self.autofocus_data.ratio
-            if self.autofocus_data.ratio == 0.0 or self.autofocus_data.ratio == float('inf'):
-                v = 0.2  # Hardcode to keep going
+        # fine search near top. Thresholded at 0.1 to prevent false positives for noise changes
+        if not self.fine_mode:
+            if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv > 0.1:
+                self.get_logger().info('Entering fine')
+                self.fine_mode = True
+                v = self.kv * (self.autofocus_data.ratio - 0.5)
+            else:
+                v = self.kv/abs(self.autofocus_data.ratio)
+                if self.autofocus_data.ratio == 0.0 or self.autofocus_data.ratio == float('inf'):
+                    v = 0.2  # Hardcode to keep going
+                self.get_logger().info(
+                    f'Coarse: ratio {self.autofocus_data.ratio:.6f}, v {v}')
+        else:
+            # ddfv<0 and dfv=0, here it's written as 1st instance dfv<-2 to avoid false negative, so overshooting a bit
+            if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv < -2:
+                self.get_logger().info('Done')
+                v = 0.0
+                autofocus_enabled_param = rclpy.parameter.Parameter(
+                    'autofocus_enabled',
+                    rclpy.Parameter.Type.BOOL,
+                    False
+                )
+                self.set_parameters([autofocus_enabled_param])
+                self.fine_mode = False
+            else:
+                v = self.kv * (self.autofocus_data.ratio - 0.5)
+                self.get_logger().info(
+                    f'Fine mode: ratio {self.autofocus_data.ratio:.6f}, v {v}, ,dfv {self.autofocus_data.dfv}, smoothddfv {self.autofocus_data.smooth_ddfv}')
         return v
 
     def ehc(self):
@@ -305,7 +316,11 @@ class AutofocusNode(Node):
         self.autofocus_data.dfv = self.autofocus_data.dema_focus_value - \
             self.previous_dema_focus_value
         # No smoothing, will consider adding if deemed necessary
-        self.autofocus_data.ddfv = self.autofocus_data.dfv - self.previous_dfv
+        self.ddfv = self.autofocus_data.dfv - self.previous_dfv
+        # Smoothing ddFV
+        K_smooth = 2 / (3 + 1)
+        self.autofocus_data.smooth_ddfv = (
+            K_smooth * (self.ddfv - self.autofocus_data.smooth_ddfv)) + self.autofocus_data.smooth_ddfv
 
         # Store current dfv for next iteration
         self.previous_dfv = self.autofocus_data.dfv
@@ -314,13 +329,13 @@ class AutofocusNode(Node):
 
         # Publish debug information
         debug_msg = String()
-        debug_msg.data = f"fv: {self.autofocus_data.focus_value:.6f}, dfv: {self.autofocus_data.dfv:.6f}, ddfv: {self.autofocus_data.ddfv:.6f}, ratio: {self.autofocus_data.ratio:.6f}"
+        debug_msg.data = f"fv: {self.autofocus_data.focus_value:.6f}, dfv: {self.autofocus_data.dfv:.6f}, smooth_ddfv: {self.autofocus_data.smooth_ddfv:.6f}, ratio: {self.autofocus_data.ratio:.6f}"
         self.debug_publisher.publish(debug_msg)
 
         if self.autofocus_enabled:
             # Only run algorithm when autofocus is active
             if self.focus_algorithm == "default":
-                v = self.ehc()
+                v = self.adaptive()
             elif self.focus_algorithm == "adaptive":
                 v = self.adaptive()
             elif self.focus_algorithm == "ehc":
