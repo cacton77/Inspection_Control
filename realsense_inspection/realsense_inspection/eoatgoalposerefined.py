@@ -73,17 +73,8 @@ def _pca_plane_normal(pts_np: np.ndarray):
     return c, n
 
 def _quaternion_from_z(normal: np.ndarray) -> Quaternion:
-   # """Quaternion aligning +Z axis with 'normal' (xyzw)."""
-#    z = normal / (LA.norm(normal) + 1e-12)
-  #  tmp = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-   # if abs(np.dot(tmp, z)) > 0.9:
-   #     tmp = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-  #  x = np.cross(tmp, z); x /= (LA.norm(x) + 1e-12)
-  #  y = np.cross(z, x)
-  #  R = np.stack([x, y, z], axis=1)
-
+    """Return quaternion with +Z aligned with normal."""
     z = normal / LA.norm(normal)
-   # z = -normal / LA.norm(normal)
     up = np.array([0, 1, 0])
     if np.array_equal(z, up):
        x = np.array([1, 0, 0])
@@ -93,10 +84,8 @@ def _quaternion_from_z(normal: np.ndarray) -> Quaternion:
      #  x = np.array([1, 0, 0])
     else:
          x = np.cross(up, z)
-         #x = np.cross(z, up)
          x /= LA.norm(x)
     y = np.cross(z, x)
-    #y = np.cross(x, z)
     R = np.stack([x, y, z], axis=1)
 
 
@@ -125,6 +114,7 @@ def _quaternion_from_z(normal: np.ndarray) -> Quaternion:
     return Quaternion(x=qx, y=qy, z=qz, w=qw)
 
 class DepthBGRemove(Node):
+    # Node that gives desired EOAT pose based on depth image, bounding box, and cropping
     def __init__(self):
         super().__init__('depth_bg_remove')
 
@@ -141,21 +131,17 @@ class DepthBGRemove(Node):
         self.declare_parameter('publish_pointcloud', True)
         self.declare_parameter('pcd_downsampling_stride', 1)
         self.declare_parameter('target_frame', 'object_frame')
-
         # Bounding Box Parameters
-        
         self.declare_parameter('main_camera_frame', 'eoat_camera_link')  
         # Cropping parameters (cylindrical crop in eoat_camera_link frame)
-
-        
         self.declare_parameter('crop_radius', 0.05)               # m, radial bound about +Z
         self.declare_parameter('crop_z_min', 0.05)                # m, slab start in +Z
-        self.declare_parameter('crop_z_max', 0.40)
-        
+        self.declare_parameter('crop_z_max', 0.40)        
         # EOAT desired pose parameters
         self.declare_parameter('standoff_m', 0.10)                # used when mode=fixed
         self.declare_parameter('standoff_mode', 'euclidean')          # 'fixed'|'euclidean'|'along_normal'
-        
+       
+        # Get parameters
         self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
         self.camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
         self.bounding_box_topic = self.get_parameter('bounding_box_topic').get_parameter_value().string_value
@@ -165,26 +151,22 @@ class DepthBGRemove(Node):
         self.publish_pointcloud = bool(self.get_parameter('publish_pointcloud').value)
         self.pcd_downsampling_stride = int(self.get_parameter('pcd_downsampling_stride').value)
         self.target_frame = self.get_parameter('target_frame').get_parameter_value().string_value
-
-       
-         # ---- Initialize bbox fields so they're always present ----
-        # Use infinities so "no box yet" behaves like "pass-through".
-     
-     
-        self.bbox_min = np.array([-float('inf'), -float('inf'), -float('inf')], dtype=float)  # [xmin, ymin, zmin]
-        self.bbox_max = np.array([ float('inf'),  float('inf'),  float('inf')], dtype=float)  # [xmax, ymax, zmax]
-        self.main_camera_frame = self.get_parameter('main_camera_frame').get_parameter_value().string_value 
-        # Crop reads (NEW)
-       
-      
+        # Crop reads (NEW)    
         self.crop_radius   = float(self.get_parameter('crop_radius').value)
         self.crop_z_min    = float(self.get_parameter('crop_z_min').value)
         self.crop_z_max    = float(self.get_parameter('crop_z_max').value)
         self.standoff_m    = float(self.get_parameter('standoff_m').value)
         self.standoff_mode = str(self.get_parameter('standoff_mode').value).lower()
+       
+        # ---- Initialize bbox fields so they're always present ----
+        # Use infinities so "no box yet" behaves like "pass-through".
+        self.bbox_min = np.array([-float('inf'), -float('inf'), -float('inf')], dtype=float)  # [xmin, ymin, zmin]
+        self.bbox_max = np.array([ float('inf'),  float('inf'),  float('inf')], dtype=float)  # [xmax, ymax, zmax]
+        self.main_camera_frame = self.get_parameter('main_camera_frame').get_parameter_value().string_value 
+       
         # Live tuning
         self.add_on_set_parameters_callback(self._on_param_update)
-
+        # QoS profile 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
@@ -207,14 +189,16 @@ class DepthBGRemove(Node):
         self.create_timer(0.1, self.process_dmap, callback_group=timer_cb_group)
 
         # Pubs
-        
+        self.eoat_pointcloud_publisher = self.create_publisher(
+            PointCloud2, f'/camera/d405_camera/depth/eoat_points_{self.main_camera_frame}_bbox', 10
+        ) if self.publish_pointcloud else None
+
         self.fov_pointcloud_publisher = self.create_publisher(
             PointCloud2, f'/camera/d405_camera/depth/fov_points_{self.main_camera_frame}_bbox', 10
         ) if self.publish_pointcloud else None
         self.normal_estimate_pub = self.create_publisher(
             PoseStamped, f'/{self.get_name()}/crop_normal', 10
         )
-        # Desired EOAT pose ONLY in main_camera_frame
         self.pub_eoat_pose_crop = self.create_publisher(
             PoseStamped, f'/{self.get_name()}/eoat_desired_pose_in_{self.main_camera_frame}', 10
         )
@@ -305,10 +289,11 @@ class DepthBGRemove(Node):
             z = masked_m[ys, xs]                         # (N,)
             x = (xs.astype(np.float32) - cx) * z / fx    # (N,)
             y = (ys.astype(np.float32) - cy) * z / fy    # (N,)
-            points = np.stack([x, y, z], axis=1)            # (N,3)
+            points1 = np.stack([x, y, z], axis=1) 
+            points2 = points1.copy()            # (N,3)
             src_frame = self.depth_msg.header.frame_id
             
-            if points.shape[0] > 0:
+            if points1.shape[0] > 0:
                 try:
                     T = self.tf_buffer.lookup_transform(
                         self.target_frame, src_frame, Time(sec=0, nanosec=0), timeout=Duration(seconds=0.001))
@@ -316,7 +301,7 @@ class DepthBGRemove(Node):
                     R = _quat_to_R_xyzw(q.x, q.y, q.z, q.w)
                     t = T.transform.translation
                     t_vec = np.array([t.x, t.y, t.z], dtype=np.float32)
-                    pts_tgt = (R @ points.T).T + t_vec  # (N,3)
+                    pts_tgt = (R @ points1.T).T + t_vec  # (N,3)
 
                 except TransformException as e:
                     self.get_logger().warn(f'No TF {self.target_frame} <- {src_frame} at stamp: {e}')
@@ -340,6 +325,10 @@ class DepthBGRemove(Node):
                         t_out = T_out.transform.translation
                         t_vec_out = np.array([t_out.x, t_out.y, t_out.z], dtype=np.float32)
                         pts_bbox_out = (R_out @ pts_bbox.T).T + t_vec_out  # (N,3)
+                        
+                        
+                        points1= pts_bbox_out
+                        
                         Xc, Yc, Zc = pts_bbox_out[:, 0], pts_bbox_out[:, 1], pts_bbox_out[:, 2]
                         r2 = Xc*Xc + Yc*Yc
                         sel_crop = (
@@ -348,7 +337,7 @@ class DepthBGRemove(Node):
                         ) 
                         
                         pts_crop = np.ascontiguousarray(pts_bbox_out[sel_crop])
-                        points = pts_crop
+                        points2 = pts_crop
                   
 
                         # Compute PCA normal 
@@ -391,11 +380,19 @@ class DepthBGRemove(Node):
                     # self._publish_bbox_marker(self.depth_msg.header.stamp)
                         return              
 
+       
+       
         pcd2_msg = make_pointcloud2(
-                points, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp
+            points1, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp
+        )
+
+        self.eoat_pointcloud_publisher.publish(pcd2_msg)
+
+        pcd2_msg_final = make_pointcloud2(
+                points2, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp
             )
 
-        self.fov_pointcloud_publisher.publish(pcd2_msg)
+        self.fov_pointcloud_publisher.publish(pcd2_msg_final)
 
 
     # Param updates
