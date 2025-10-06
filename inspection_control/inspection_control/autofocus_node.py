@@ -1,5 +1,7 @@
+import os
 import rclpy
 from rclpy.node import Node
+from rclpy.serialization import serialize_message
 from rosbag2_py import SequentialWriter, StorageOptions, ConverterOptions
 
 from rclpy.executors import MultiThreadedExecutor
@@ -48,7 +50,7 @@ class AutofocusNode(Node):
                 # Save Data Parameters
                 ('object', ''),
                 ('save_data', False),
-                ('save_path', '/tmp/autofocus_data'),
+                ('data_path', '/tmp'),
                 # Trigger
                 ('autofocus_enabled', False)
             ]
@@ -80,11 +82,11 @@ class AutofocusNode(Node):
         self.count = 0
         self.save_data = self.get_parameter(
             'save_data').get_parameter_value().bool_value
-        self.save_path = self.get_parameter(
-            'save_path').get_parameter_value().string_value
+        self.data_path = self.get_parameter(
+            'data_path').get_parameter_value().string_value
 
         self.storage_options = StorageOptions(
-            uri=self.save_path, storage_id='sqlite3')
+            uri=self.data_path, storage_id='sqlite3')
         self.converter_options = ConverterOptions(
             input_serialization_format='cdr', output_serialization_format='cdr')
         self.writer = SequentialWriter()
@@ -109,7 +111,7 @@ class AutofocusNode(Node):
         self.listener = TransformListener(self.tf_buffer, self)
 
         # Autofocus Data Message
-        self.autofocus_data = None
+        self.autofocus_data = AutofocusData()
 
         # Initialize CvBridge
         self.bridge = CvBridge()
@@ -164,11 +166,23 @@ class AutofocusNode(Node):
         # Reset initial pose for fresh start
         self.initial_end_effector_pose = None
         self.autofocus_enabled = True
+        # Open the bag file for writing
+        if self.save_data:
+            if not os.path.exists(self.data_path):
+                os.makedirs(self.data_path)
+            uri = f'{self.data_path}/{self.object}_{self.focus_algorithm}_{self.focus_metric}_{self.count}.bag'
+            self.storage_options = StorageOptions(
+                uri=uri, storage_id='sqlite3')
+            self.writer.open(self.storage_options, self.converter_options)
 
     def disable_autofocus(self):
         # Implement autofocus termination logic here
         self.get_logger().info('Ending autofocus...')
         self.autofocus_enabled = False
+        # Close the bag file after writing
+        self.writer.close()
+        # Update parameters or state as needed
+        self.count += 1
 
     def image_callback(self, msg: CompressedImage):
         self.autofocus_data = AutofocusData()
@@ -281,6 +295,8 @@ class AutofocusNode(Node):
         return v
 
     def control_loop(self):
+        if not self.autofocus_data:
+            return
         # Calculate EMA and ratio using rolling window of previous 20 values
         # Add current focus value to rolling window
         self.focus_values_window.append(self.autofocus_data.focus_value)
@@ -355,6 +371,17 @@ class AutofocusNode(Node):
             self.control_step_counter += 1
             self.twist_publisher.publish(twist)
 
+            # Write data if enabled
+            if self.save_data:
+                self.bag_autofocus_data()
+
+    def bag_autofocus_data(self):
+        self.writer.write(
+            'autofocus_data',
+            serialize_message(self.autofocus_data),
+            self.get_clock().now().nanoseconds
+        )
+
     def parameter_callback(self, params):
         for param in params:
             # Focus Metric Parameters
@@ -386,8 +413,8 @@ class AutofocusNode(Node):
                 self.count = 0
             elif param.name == 'save_data':
                 self.save_data = param.value
-            elif param.name == 'save_path':
-                self.save_path = param.value
+            elif param.name == 'data_path':
+                self.data_path = param.value
             elif param.name == 'autofocus_enabled':
                 if not self.autofocus_enabled and param.value:
                     self.enable_autofocus()

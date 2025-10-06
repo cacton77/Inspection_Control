@@ -10,5 +10,5 @@ autofocus:
     focus_algorithm: default
     object: ''
     save_data: false
-    save_path: '/tmp/autofocus_data'
+    data_path: '/data/autofocus'
     autofocus_enabled: false
