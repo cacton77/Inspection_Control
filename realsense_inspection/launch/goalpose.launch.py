@@ -36,7 +36,7 @@ def generate_launch_description():
     goalpose_node = Node(
         package='realsense_inspection',
         executable='eoatgoalposerefined',
-        name='teleoatgoalposerefined',
+        name='eoatgoalposerefined',
         parameters=[goalpose_config],
         output='screen',
         emulate_tty=True
