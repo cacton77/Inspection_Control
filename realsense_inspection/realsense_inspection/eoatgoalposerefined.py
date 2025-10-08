@@ -129,7 +129,7 @@ class DepthBGRemove(Node):
         self.declare_parameter('dmap_filter_max', 0.50) 
         self.declare_parameter('viz_enable', True)
         self.declare_parameter('publish_pointcloud', True)
-        self.declare_parameter('pcd_downsampling_stride', 1)
+        self.declare_parameter('pcd_downsampling_stride', 4)
         self.declare_parameter('target_frame', 'object_frame')
         # Bounding Box Parameters
         self.declare_parameter('main_camera_frame', 'eoat_camera_link')  
