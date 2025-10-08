@@ -140,6 +140,9 @@ class DepthBGRemove(Node):
         # EOAT desired pose parameters
         self.declare_parameter('standoff_m', 0.10)                # used when mode=fixed
         self.declare_parameter('standoff_mode', 'euclidean')          # 'fixed'|'euclidean'|'along_normal'
+        # ---- Smoothing params ----
+        self.declare_parameter('ema_enable', True)     # on/off
+        self.declare_parameter('ema_tau', 0.25)        # seconds; try 0.2–0.5 s
        
         # Get parameters
         self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
@@ -157,6 +160,13 @@ class DepthBGRemove(Node):
         self.crop_z_max    = float(self.get_parameter('crop_z_max').value)
         self.standoff_m    = float(self.get_parameter('standoff_m').value)
         self.standoff_mode = str(self.get_parameter('standoff_mode').value).lower()
+        self.ema_enable = bool(self.get_parameter('ema_enable').value)
+        self.ema_tau    = float(self.get_parameter('ema_tau').value)
+
+        # EMA state (persist across frames)
+        self._ema_normal   = None      # np.ndarray (3,)
+        self._ema_centroid = None      # np.ndarray (3,)
+        self._ema_last_t   = None      # float seconds
        
         # ---- Initialize bbox fields so they're always present ----
         # Use infinities so "no box yet" behaves like "pass-through".
@@ -246,6 +256,13 @@ class DepthBGRemove(Node):
         self.bbox_min = center - half_sizes
         self.bbox_max = center + half_sizes
 
+    def _ema_update(self, prev, x, alpha):
+        """One EMA step for vectors (broadcast-safe)."""
+        if prev is None:
+         return x.copy()
+        return (1.0 - alpha) * prev + alpha * x
+  
+ 
     def on_depth(self, msg: Image):
         # Convert ROS Image -> numpy
         self.depth_msg = msg    
@@ -343,25 +360,72 @@ class DepthBGRemove(Node):
                         # Compute PCA normal 
                         if pts_crop.shape[0] >= 10:
                          centroid, normal = _pca_plane_normal(pts_crop)
+                         # Timestamp in seconds for rate-independent alpha
+                         stamp = self.depth_msg.header.stamp
+                         now_s = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
+
+                         if not self.ema_enable:
+                          cen_s = centroid
+                          nrm_s = normal
+                          self._ema_centroid = centroid
+                          self._ema_normal   = normal
+                          self._ema_last_t   = now_s
+                         else:
+                          if self._ema_last_t is None:
+                        # First sample initializes the EMA
+                            self._ema_centroid = centroid.copy()
+                            self._ema_normal   = normal.copy()
+                            self._ema_last_t   = now_s
+
+                    # Keep a consistent normal hemisphere to avoid ± flips
+                         if self._ema_normal is not None and np.dot(normal, self._ema_normal) < 0.0:
+                            normal = -normal
+
+                         dt = max(0.0, now_s - (self._ema_last_t if self._ema_last_t is not None else now_s))
+                   # α from time-constant τ (handles variable frame rate)
+                         alpha = 1.0 - math.exp(-dt / max(1e-3, self.ema_tau))
+                         alpha = min(1.0, max(0.0, alpha))
+
+                  # EMA updates
+                         self._ema_centroid = self._ema_update(self._ema_centroid, centroid, alpha)
+                         self._ema_normal   = self._ema_update(self._ema_normal,   normal,   alpha)
+
+                  # Renormalize the smoothed normal
+                         n = LA.norm(self._ema_normal) + 1e-12
+                         self._ema_normal /= n
+
+                         cen_s = self._ema_centroid
+                         nrm_s = self._ema_normal
+                         self._ema_last_t = now_s
+
                          pose = PoseStamped()
                          pose.header = self.depth_msg.header
                          pose.header.frame_id = self.main_camera_frame
-                         pose.pose.position.x = float(centroid[0])
-                         pose.pose.position.y = float(centroid[1])
-                         pose.pose.position.z = float(centroid[2])
-                         pose.pose.orientation = _quaternion_from_z(normal)
+                         #pose.pose.position.x = float(centroid[0])
+                         pose.pose.position.x = float(cen_s[0])
+                         #pose.pose.position.y = float(centroid[1])
+                         pose.pose.position.y = float(cen_s[1])
+                         #pose.pose.position.z = float(centroid[2])
+                         pose.pose.position.z = float(cen_s[2])
+
+                         #pose.pose.orientation = _quaternion_from_z(normal)
+                         pose.pose.orientation = _quaternion_from_z(nrm_s)
                          self.normal_estimate_pub.publish(pose)
                         # ---- Compute standoff based on mode ----
                          if self.standoff_mode == 'euclidean':
-                                d = float(LA.norm(centroid))  # ||c||
+                                #d = float(LA.norm(centroid))  # ||c||
+                                d = float(LA.norm(cen_s))  # ||c||
                          elif self.standoff_mode == 'along_normal':
                                 # signed distance along the normal, clamp to >=0
-                                d = float(max(0.0, float(np.dot(normal, centroid))))
+                                #d = float(max(0.0, float(np.dot(normal, centroid))))
+                                d = float(max(0.0, float(np.dot(nrm_s, cen_s))))
                          else:  # 'fixed' or anything else
                                 d = self.standoff_m
                         # Desired EOAT pose: back off along normal by d; +Z aligned with normal
-                         p_des_cf = centroid - d*normal
-                         q_des_cf = _quaternion_from_z(normal)
+                         #p_des_cf = centroid - d*normal
+                         p_des_cf = cen_s - d*nrm_s
+                         #q_des_cf = _quaternion_from_z(normal)
+                         q_des_cf = _quaternion_from_z(nrm_s)
 
                          eoat_cf = PoseStamped()
                          eoat_cf.header = self.depth_msg.header
@@ -434,6 +498,11 @@ class DepthBGRemove(Node):
                 self.standoff_m = float(p.value)
             elif p.name == 'standoff_mode':
                 self.standoff_mode = str(p.value).lower()
+            elif p.name == 'ema_enable':
+                self.ema_enable = bool(p.value)
+            elif p.name == 'ema_tau':
+                self.ema_tau = max(1e-3, float(p.value))
+
         return SetParametersResult(successful=True)
 
 

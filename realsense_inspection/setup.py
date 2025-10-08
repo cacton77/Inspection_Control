@@ -42,7 +42,8 @@ setup(
             'eoatempty = realsense_inspection.eoatempty:main',
             'eoatemptyrefined= realsense_inspection.eoatemptyrefined:main',
             'eoatrefined_normalestimation = realsense_inspection.eoatrefined_normalestimation:main',
-            'eoatgoalposerefined= realsense_inspection.eoatgoalposerefined:main'
+            'eoatgoalposerefined= realsense_inspection.eoatgoalposerefined:main',
+            'eoatgoalposerefinedsmoothed= realsense_inspection.eoatgoalposerefined_normalfilter:main'
         ],
     },
 )
