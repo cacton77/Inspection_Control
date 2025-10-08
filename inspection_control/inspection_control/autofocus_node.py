@@ -2,7 +2,7 @@ import os
 import rclpy
 from rclpy.node import Node
 from rclpy.serialization import serialize_message
-from rosbag2_py import SequentialWriter, StorageOptions, ConverterOptions
+from rosbag2_py import SequentialWriter, StorageOptions, ConverterOptions, TopicMetadata
 
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
@@ -90,6 +90,10 @@ class AutofocusNode(Node):
         self.converter_options = ConverterOptions(
             input_serialization_format='cdr', output_serialization_format='cdr')
         self.writer = SequentialWriter()
+        self.topic_info = TopicMetadata(
+            name='autofocus_data',
+            type='viewpoint_generation_interfaces/msg/AutofocusData',
+            serialization_format='cdr')
 
         # Enable Autofocus
         self.control_step_counter = 0
@@ -99,6 +103,9 @@ class AutofocusNode(Node):
         self.autofocus_enabled = self.get_parameter(
             'autofocus_enabled').get_parameter_value().bool_value
         self.fine_mode = False
+        self.max_focus_value = 0.0
+        self.max_found = False
+        self.max_focus_value_distance = 0.0
 
         # Initialize callback groups
         self.service_callback_group = MutuallyExclusiveCallbackGroup()
@@ -174,6 +181,7 @@ class AutofocusNode(Node):
             self.storage_options = StorageOptions(
                 uri=uri, storage_id='sqlite3')
             self.writer.open(self.storage_options, self.converter_options)
+            self.writer.create_topic(self.topic_info)
 
     def disable_autofocus(self):
         # Implement autofocus termination logic here
@@ -251,15 +259,8 @@ class AutofocusNode(Node):
         else:
             # ddfv<0 and dfv=0, here it's written as 1st instance dfv<-2 to avoid false negative, so overshooting a bit
             if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv < -2:
-                self.get_logger().info('Done')
                 v = 0.0
-                autofocus_enabled_param = rclpy.parameter.Parameter(
-                    'autofocus_enabled',
-                    rclpy.Parameter.Type.BOOL,
-                    False
-                )
-                self.set_parameters([autofocus_enabled_param])
-                self.fine_mode = False
+                self.max_found = True
             else:
                 v = self.kv * (self.autofocus_data.ratio - 0.5)
                 self.get_logger().info(
@@ -275,23 +276,34 @@ class AutofocusNode(Node):
         # Initialize starting position on first call
         if self.initial_end_effector_pose is None:
             self.initial_end_effector_pose = self.autofocus_data.end_effector_pose
-        # Compute distance travelled, comparing current to initial
-        distance_travelled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
-                              (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
-                              (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
-        # self.get_logger().info(
-        #     f'EHC: distance_travelled: {distance_travelled:.6f}')
-        # current_pose (x, y, z) compared to initial_pose (x, y, z)
-        if distance_travelled > self.ehc_distance:
+        if self.distance_traveled > self.ehc_distance:
             v = 0.0
+            self.max_found = True
+        return v
+
+    def return_to_max(self):
+        self.get_logger().info('Returning to max focus position')
+        # Compare current position to maximum focus position self.distance_traveled should go down
+        e = self.distance_traveled - self.max_focus_value_distance
+        # Logic to return to the maximum focus position
+        if abs(e) > 0.01:  # Far from target if >1 cm
+            v = -0.4 if e > 0 else 0.4
+        else:  # <1 cm
+            v = -self.kv * e  # Proportional for precision
+        # Implement the return to max logic here
+        if abs(e) < 0.001:
+            v = 0.0  # Stop when close enough
+            # Maybe set self.max_found = False or disable autofocus
             autofocus_enabled_param = rclpy.parameter.Parameter(
                 'autofocus_enabled',
                 rclpy.Parameter.Type.BOOL,
                 False
             )
+            self.set_parameters([autofocus_enabled_param])
             # Reset for next autofocus run
             self.initial_end_effector_pose = None
-            self.set_parameters([autofocus_enabled_param])
+            self.fine_mode = False
+            self.max_found = False
         return v
 
     def control_loop(self):
@@ -349,7 +361,20 @@ class AutofocusNode(Node):
         self.debug_publisher.publish(debug_msg)
 
         if self.autofocus_enabled:
+            # Compute distance traveled, comparing current to initial
+            self.distance_traveled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
+                                      (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
+                                      (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
+            # self.get_logger().info(f'EHC: distance_traveled: {self.distance_traveled:.6f}')
+
+            # Save maximum raw focus value
+            if self.autofocus_data.focus_value > self.max_focus_value:
+                self.max_focus_value = self.autofocus_data.focus_value
+                self.max_focus_value_distance = self.distance_traveled
+
             # Only run algorithm when autofocus is active
+            if self.max_found:
+                v = self.return_to_max()
             if self.focus_algorithm == "default":
                 v = self.adaptive()
             elif self.focus_algorithm == "adaptive":
