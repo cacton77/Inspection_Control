@@ -15,6 +15,7 @@ from tf2_ros import TransformException
 from cv_bridge import CvBridge, CvBridgeError
 
 import inspection_control.focus_metrics as focus_metrics
+from inspection_control.debag import debag
 
 from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import CompressedImage
@@ -47,6 +48,7 @@ class AutofocusNode(Node):
                 # Focus Algorithm Parameters
                 ('control_rate', 10.0),
                 ('focus_algorithm', 'default'),
+                ('ehc_distance', 0.05),
                 # Save Data Parameters
                 ('object', ''),
                 ('save_data', False),
@@ -75,6 +77,8 @@ class AutofocusNode(Node):
             'focus_algorithm').get_parameter_value().string_value
         self.control_rate = self.get_parameter(
             'control_rate').get_parameter_value().double_value
+        self.ehc_distance = self.get_parameter(
+            'ehc_distance').get_parameter_value().double_value
 
         # ROS Bag2 Writer Initialization
         self.object = self.get_parameter(
@@ -98,7 +102,6 @@ class AutofocusNode(Node):
         # Enable Autofocus
         self.control_step_counter = 0
         self.initial_end_effector_pose = None
-        self.ehc_distance = 0.1
         self.autofocus_type = "ehc"  # EHC is default
         self.autofocus_enabled = self.get_parameter(
             'autofocus_enabled').get_parameter_value().bool_value
@@ -123,14 +126,15 @@ class AutofocusNode(Node):
         # Initialize CvBridge
         self.bridge = CvBridge()
 
-        # EMA calculation variables with rolling window of 20 values
-        self.N_ema = 20  # Window size for EMA calculation
-        self.focus_values_window = []  # Rolling window of focus values
-        self.ema_focus_value2 = 0  # For DEMA calculation
-        self.previous_dema_focus_value = 0
+        # EMA calculation variables
+        self.N_ema = 3  # EMA smoothing factor parameter
+        self.ema_focus_value2 = None
+        self.previous_dema_focus_value = None
         self.previous_dfv = 0
         self.kv = 0.8
         self.ddfv = 0
+        self.ema_initialized = False  # Track if EMA has been initialized
+        self.t_stop = None  # Timer for holding at max focus position
 
         # Create subscription for image topic
         self.create_subscription(
@@ -171,13 +175,20 @@ class AutofocusNode(Node):
         # Implement autofocus initiation logic here
         self.get_logger().info('Beginning autofocus...')
         # Reset initial pose for fresh start
-        self.initial_end_effector_pose = None
+        self.initial_end_effector_pose = self.autofocus_data.end_effector_pose
+        self.distance_traveled = 0.0
         self.autofocus_enabled = True
+        # Reset for next autofocus run
+        self.fine_mode = False
+        self.max_found = False
+        self.max_focus_value = 0.0
+        self.ema_initialized = False  # Reset EMA initialization for fresh start
+
         # Open the bag file for writing
         if self.save_data:
             if not os.path.exists(self.data_path):
                 os.makedirs(self.data_path)
-            uri = f'{self.data_path}/{self.object}_{self.focus_algorithm}_{self.focus_metric}_{self.count}.bag'
+            uri = f'{self.data_path}/{self.object}_{self.focus_algorithm}_{self.focus_metric}_{self.count}_{self.get_clock().now().to_msg().sec}.bag'
             self.storage_options = StorageOptions(
                 uri=uri, storage_id='sqlite3')
             self.writer.open(self.storage_options, self.converter_options)
@@ -189,15 +200,22 @@ class AutofocusNode(Node):
         self.autofocus_enabled = False
         # Close the bag file after writing
         self.writer.close()
+        debag(self.storage_options.uri)
         # Update parameters or state as needed
         self.count += 1
 
     def image_callback(self, msg: CompressedImage):
-        self.autofocus_data = AutofocusData()
-
         # Process the incoming image message
         self.autofocus_data.header = msg.header
         self.autofocus_data.image = msg
+
+        # Update ROI info
+        self.autofocus_data.roi_x = self.roi_x
+        self.autofocus_data.roi_y = self.roi_y
+        self.autofocus_data.roi_width = self.roi_width
+        self.autofocus_data.roi_height = self.roi_height
+        self.autofocus_data.focus_metric = self.focus_metric
+
         # Look up transform from camera frame to base frame
         try:
             transform = self.tf_buffer.lookup_transform(
@@ -251,14 +269,19 @@ class AutofocusNode(Node):
                 self.fine_mode = True
                 v = self.kv * (self.autofocus_data.ratio - 0.5)
             else:
-                v = self.kv/abs(self.autofocus_data.ratio)
-                if self.autofocus_data.ratio == 0.0 or self.autofocus_data.ratio == float('inf'):
-                    v = 0.2  # Hardcode to keep going
+                # Add safety check to prevent division by zero
+                if abs(self.autofocus_data.ratio) < 1e-10:  # Very small number threshold
+                    v = 0.2  # Default velocity when ratio is effectively zero
+                    self.get_logger().warn("Ratio too small for division, using default velocity")
+                elif self.autofocus_data.ratio == float('inf') or self.autofocus_data.ratio == float('-inf'):
+                    v = 0.2  # Hardcode to keep going for infinite values
+                else:
+                    v = self.kv/abs(self.autofocus_data.ratio)
                 self.get_logger().info(
                     f'Coarse: ratio {self.autofocus_data.ratio:.6f}, v {v}')
         else:
-            # ddfv<0 and dfv=0, here it's written as 1st instance dfv<-2 to avoid false negative, so overshooting a bit
-            if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv < -2:
+            # ddfv<0 and dfv=0, here it's written as 1st instance dfv<-1 to avoid false negative, so overshooting a bit
+            if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv < -1:
                 v = 0.0
                 self.max_found = True
             else:
@@ -273,62 +296,54 @@ class AutofocusNode(Node):
             return 0.0
 
         v = 0.25
-        # Initialize starting position on first call
-        if self.initial_end_effector_pose is None:
-            self.initial_end_effector_pose = self.autofocus_data.end_effector_pose
         if self.distance_traveled > self.ehc_distance:
             v = 0.0
             self.max_found = True
         return v
 
     def return_to_max(self):
-        self.get_logger().info('Returning to max focus position')
         # Compare current position to maximum focus position self.distance_traveled should go down
         e = self.distance_traveled - self.max_focus_value_distance
-        # Logic to return to the maximum focus position
-        if abs(e) > 0.01:  # Far from target if >1 cm
-            v = -0.4 if e > 0 else 0.4
-        else:  # <1 cm
-            v = -self.kv * e  # Proportional for precision
+        self.get_logger().info(f'Returning to max position. Err: {e:.6f}')
+        if e > 0:
+            v = -0.25
+        else:
+            v = 0.25
         # Implement the return to max logic here
-        if abs(e) < 0.001:
+        if abs(e) < 0.0001:  # Stop when within 0.1mm
             v = 0.0  # Stop when close enough
+            self.t_stop = self.get_clock().now().seconds_nanoseconds()[0]
             # Maybe set self.max_found = False or disable autofocus
+        return v
+
+    def hold_max(self):
+        t = self.get_clock().now().seconds_nanoseconds()[0]
+        if t - self.t_stop > 5:  # Hold max for 5 seconds
             autofocus_enabled_param = rclpy.parameter.Parameter(
                 'autofocus_enabled',
                 rclpy.Parameter.Type.BOOL,
                 False
             )
             self.set_parameters([autofocus_enabled_param])
-            # Reset for next autofocus run
-            self.initial_end_effector_pose = None
-            self.fine_mode = False
-            self.max_found = False
-        return v
+            self.t_stop = None
+        return 0.0
 
     def control_loop(self):
-        if not self.autofocus_data:
-            return
-        # Calculate EMA and ratio using rolling window of previous 20 values
-        # Add current focus value to rolling window
-        self.focus_values_window.append(self.autofocus_data.focus_value)
+        # if not self.autofocus_data or not hasattr(self.autofocus_data, 'focus_value'):
+        #     return
 
-        # Keep only last N_ema values
-        if len(self.focus_values_window) > self.N_ema:
-            self.focus_values_window.pop(0)
+        # Calculate EMA smoothing factor
+        K = 2 / (self.N_ema + 1)
 
-        # Calculate EMA and DEMA
-        if len(self.focus_values_window) == 1:
-            # First value, initialize EMA values
+        # Initialize EMA/DEMA on first call
+        if not self.ema_initialized:
             self.autofocus_data.ema_focus_value = self.autofocus_data.focus_value
             self.ema_focus_value2 = self.autofocus_data.focus_value
             self.autofocus_data.dema_focus_value = self.autofocus_data.focus_value
             self.previous_dema_focus_value = self.autofocus_data.dema_focus_value
+            self.ema_initialized = True
         else:
-            # Calculate EMA smoothing factor
-            K = 2 / (len(self.focus_values_window) + 1)
-
-            # Calculate EMA and DEMA
+            # Calculate EMA and DEMA using exponential smoothing
             self.autofocus_data.ema_focus_value = (
                 K * (self.autofocus_data.focus_value - self.autofocus_data.ema_focus_value)) + self.autofocus_data.ema_focus_value
             self.ema_focus_value2 = (
@@ -337,8 +352,13 @@ class AutofocusNode(Node):
                 self.autofocus_data.ema_focus_value - self.ema_focus_value2
 
             # Calculate ratio using current and previous DEMA values
-            self.autofocus_data.ratio = self.autofocus_data.dema_focus_value / \
-                self.previous_dema_focus_value
+            # Add safety check to prevent division by zero
+            if abs(self.previous_dema_focus_value) < 1e-10:  # Very small number threshold
+                self.autofocus_data.ratio = 1.0  # Default to 1.0 if denominator is effectively zero
+                self.get_logger().warn("Previous DEMA value too small, setting ratio to 1.0")
+            else:
+                self.autofocus_data.ratio = self.autofocus_data.dema_focus_value / \
+                    self.previous_dema_focus_value
 
         # Compute dfv and ddfv using current and previous DEMA values
         self.autofocus_data.dfv = self.autofocus_data.dema_focus_value - \
@@ -362,25 +382,36 @@ class AutofocusNode(Node):
 
         if self.autofocus_enabled:
             # Compute distance traveled, comparing current to initial
-            self.distance_traveled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
-                                      (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
-                                      (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
+            if self.initial_end_effector_pose is not None:
+                self.distance_traveled = ((self.autofocus_data.end_effector_pose.pose.position.x - self.initial_end_effector_pose.pose.position.x)**2 +
+                                          (self.autofocus_data.end_effector_pose.pose.position.y - self.initial_end_effector_pose.pose.position.y)**2 +
+                                          (self.autofocus_data.end_effector_pose.pose.position.z - self.initial_end_effector_pose.pose.position.z)**2)**0.5
+            else:
+                self.distance_traveled = 0.0
             # self.get_logger().info(f'EHC: distance_traveled: {self.distance_traveled:.6f}')
 
             # Save maximum raw focus value
             if self.autofocus_data.focus_value > self.max_focus_value:
                 self.max_focus_value = self.autofocus_data.focus_value
                 self.max_focus_value_distance = self.distance_traveled
+                self.autofocus_data.is_focused = False
+            # If FV<max, and in fine mode (near the top), is_focused = True
+            elif self.fine_mode and self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv < 0:
+                self.autofocus_data.is_focused = True
 
             # Only run algorithm when autofocus is active
-            if self.max_found:
+            if self.t_stop:
+                v = self.hold_max()
+            elif self.max_found:
                 v = self.return_to_max()
-            if self.focus_algorithm == "default":
+            elif self.focus_algorithm == "default":
                 v = self.adaptive()
             elif self.focus_algorithm == "adaptive":
                 v = self.adaptive()
             elif self.focus_algorithm == "ehc":
                 v = self.ehc()
+
+            self.autofocus_data.velocity_command = float(v)
 
             twist = TwistStamped()
             twist.header.stamp = self.get_clock().now().to_msg()
@@ -401,11 +432,12 @@ class AutofocusNode(Node):
                 self.bag_autofocus_data()
 
     def bag_autofocus_data(self):
-        self.writer.write(
-            'autofocus_data',
-            serialize_message(self.autofocus_data),
-            self.get_clock().now().nanoseconds
-        )
+        if self.autofocus_enabled:
+            self.writer.write(
+                'autofocus_data',
+                serialize_message(self.autofocus_data),
+                self.get_clock().now().nanoseconds
+            )
 
     def parameter_callback(self, params):
         for param in params:
@@ -432,6 +464,8 @@ class AutofocusNode(Node):
             # Focus Algorithm Parameters
             elif param.name == 'focus_algorithm':
                 self.focus_algorithm = param.value
+            elif param.name == 'ehc_distance':
+                self.ehc_distance = param.value
             # Save Data Parameters
             elif param.name == 'object':
                 self.object = param.value

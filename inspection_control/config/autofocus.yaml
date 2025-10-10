@@ -8,6 +8,7 @@ autofocus:
     roi_y: 0.5
     control_rate: 10.0
     focus_algorithm: default
+    ehc_distance: 0.05
     object: ''
     save_data: false
     data_path: '/data/autofocus'
