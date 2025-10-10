@@ -480,37 +480,41 @@ class DepthBGRemove(Node):
                          eoat_cf.pose.position.y = float(p_des_cf[1])
                          eoat_cf.pose.position.z = float(p_des_cf[2])
                          eoat_cf.pose.orientation = q_des_cf
+
+                         R_goal = _quat_to_R_xyzw(q_des_cf.x, q_des_cf.y, q_des_cf.z, q_des_cf.w)
+                         xg, yg, zg = R_goal[:,0], R_goal[:,1], R_goal[:,2]   # each is a length-3 unit vector
+
                          # --- Z-axis alignment error in main_camera_frame ---
-                        omega = _z_axis_rotvec_error(nrm_s)   # 3-vector [ωx, ωy, ωz]
+                         omega = _z_axis_rotvec_error(zg)   # 3-vector [ωx, ωy, ωz]
 
-                        err_msg = Vector3Stamped()
-                        err_msg.header = self.depth_msg.header
-                        err_msg.header.frame_id = self.main_camera_frame
-                        err_msg.vector.x, err_msg.vector.y, err_msg.vector.z = map(float, omega)
-                        self.pub_z_rotvec_err.publish(err_msg)
+                         err_msg = Vector3Stamped()
+                         err_msg.header = self.depth_msg.header
+                         err_msg.header.frame_id = self.main_camera_frame
+                         err_msg.vector.x, err_msg.vector.y, err_msg.vector.z = map(float, omega)
+                         self.pub_z_rotvec_err.publish(err_msg)
 
-                        # Proportional torque τ = K_R * ω
-                        K_R = np.diag([self.K_rx, self.K_ry, self.K_rz])
-                        tau = (K_R @ omega).astype(np.float32)
+                         # Proportional torque τ = K_R * ω
+                         K_R = np.diag([self.K_rx, self.K_ry, self.K_rz])
+                         tau = (K_R @ omega).astype(np.float32)
 
-                        # Saturation
-                        lim = self.torque_limit
-                        tau = np.clip(tau, -lim, lim)
+                         # Saturation
+                         lim = self.torque_limit
+                         tau = np.clip(tau, -lim, lim)
 
                     # Publish as Wrench (torque only; set forces to 0 or add your own position control)
-                        w = WrenchStamped()
-                        w.header = self.depth_msg.header
-                        w.header.frame_id = self.main_camera_frame
-                        w.wrench.force.x = 0.0
-                        w.wrench.force.y = 0.0
-                        w.wrench.force.z = 0.0
-                        w.wrench.torque.x = float(tau[0])
-                        w.wrench.torque.y = float(tau[1])
-                        w.wrench.torque.z = float(tau[2])  # will be ~0 for Z-only error
-                        self.pub_wrench_cmd.publish(w)
+                         w = WrenchStamped()
+                         w.header = self.depth_msg.header
+                         w.header.frame_id = self.main_camera_frame
+                         w.wrench.force.x = 0.0
+                         w.wrench.force.y = 0.0
+                         w.wrench.force.z = 0.0
+                         w.wrench.torque.x = float(tau[0])
+                         w.wrench.torque.y = float(tau[1])
+                         w.wrench.torque.z = float(tau[2])  # will be ~0 for Z-only error
+                         self.pub_wrench_cmd.publish(w)
 
 
-                        self.pub_eoat_pose_crop.publish(eoat_cf)
+                         self.pub_eoat_pose_crop.publish(eoat_cf)
                        
                  
                        
