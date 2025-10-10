@@ -92,13 +92,18 @@ class AdmittanceControlNode(Node):
             qos_profile
         )
 
-        self.joy_sub = self.create_subscription(
+        #self.joy_sub = self.create_subscription(
+        #    WrenchStamped,
+        #    wrench_topic,
+        #    self.wrench_callback,
+        #    qos_profile
+       # )
+        self.torque_sub = self.create_subscription(
             WrenchStamped,
-            wrench_topic,
+            '/depth_bg_remove/wrench_cmd_in_eoat_camera_link,
             self.wrench_callback,
             qos_profile
         )
-
         self.linear_vel = [0., 0., 0.]
         self.inertia = [inertia_x, inertia_y, inertia_z]
         self.angular_vel = [0., 0., 0.]
