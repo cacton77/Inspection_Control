@@ -100,7 +100,7 @@ class AdmittanceControlNode(Node):
        # )
         self.torque_sub = self.create_subscription(
             WrenchStamped,
-            '/depth_bg_remove/wrench_cmd_in_eoat_camera_link,
+            '/depth_bg_remove/wrench_cmd_in_eoat_camera_link',
             self.wrench_callback,
             qos_profile
         )

@@ -170,12 +170,12 @@ class DepthBGRemove(Node):
         self.declare_parameter('ema_enable', True)     # on/off
         self.declare_parameter('ema_tau', 0.25)        # seconds; try 0.2–0.5 s
         # Orientation P gains (Nm/rad) in main_camera_frame
-        self.declare_parameter('K_rx', 2.0)   # torque gain about camera X
-        self.declare_parameter('K_ry', 2.0)   # torque gain about camera Y
-        self.declare_parameter('K_rz', 1.0)   # torque gain about camera Z (used by SO3 error)
+        self.declare_parameter('K_rx', 200.0)   # torque gain about camera X
+        self.declare_parameter('K_ry', 200.0)   # torque gain about camera Y
+        self.declare_parameter('K_rz', 200.0)   # torque gain about camera Z (used by SO3 error)
 
         # Optional torque saturation (Nm)
-        self.declare_parameter('torque_limit', 3.0)
+        #self.declare_parameter('torque_limit', 3.0)
 
        
         # Get parameters
@@ -211,7 +211,7 @@ class DepthBGRemove(Node):
         self.K_rx = float(self.get_parameter('K_rx').value)
         self.K_ry = float(self.get_parameter('K_ry').value)
         self.K_rz = float(self.get_parameter('K_rz').value)
-        self.torque_limit = float(self.get_parameter('torque_limit').value)
+        #self.torque_limit = float(self.get_parameter('torque_limit').value)
 
         # Live tuning
         self.add_on_set_parameters_callback(self._on_param_update)
@@ -424,8 +424,8 @@ class DepthBGRemove(Node):
                             self._ema_last_t   = now_s
 
                     # Keep a consistent normal hemisphere to avoid ± flips
-                         if self._ema_normal is not None and np.dot(normal, self._ema_normal) < 0.0:
-                            normal = -normal
+                         #if self._ema_normal is not None and np.dot(normal, self._ema_normal) < 0.0:
+                           # normal = -normal
 
                          dt = max(0.0, now_s - (self._ema_last_t if self._ema_last_t is not None else now_s))
                    # α from time-constant τ (handles variable frame rate)
@@ -498,8 +498,8 @@ class DepthBGRemove(Node):
                          tau = (K_R @ omega).astype(np.float32)
 
                          # Saturation
-                         lim = self.torque_limit
-                         tau = np.clip(tau, -lim, lim)
+                         #lim = self.torque_limit
+                         #tau = np.clip(tau, -lim, lim)
 
                     # Publish as Wrench (torque only; set forces to 0 or add your own position control)
                          w = WrenchStamped()
@@ -582,6 +582,14 @@ class DepthBGRemove(Node):
                 self.ema_enable = bool(p.value)
             elif p.name == 'ema_tau':
                 self.ema_tau = max(1e-3, float(p.value))
+            elif p.name == 'K_rx':
+                self.K_rx = float(p.value)
+            elif p.name == 'K_ry':
+                self.K_ry = float(p.value)
+            elif p.name == 'K_rz':
+                self.K_rz = float(p.value)
+            #elif p.name == 'torque_limit':
+                #self.torque_limit = float(p.value)
 
         return SetParametersResult(successful=True)
 

@@ -37,7 +37,12 @@ def generate_launch_description():
         'config',
         LaunchConfiguration('teleop_config_file')
     ])
-    admittance_control_config = PathJoinSubstitution([
+   # admittance_control_config = PathJoinSubstitution([
+      #  FindPackageShare('inspection_control'),
+      #  'config',
+      #  LaunchConfiguration('admittance_config_file')
+   # ])
+    admittance_control_combine_config = PathJoinSubstitution([
         FindPackageShare('inspection_control'),
         'config',
         LaunchConfiguration('admittance_config_file')
@@ -67,11 +72,19 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True
     )
-    admittance_control_node = Node(
+    #admittance_control_node = Node(
+      #  package='inspection_control',
+      #  executable='admittance_control',
+      #  name='admittance_control',
+      #  parameters=[admittance_control_config],
+      #  output='screen',
+      #  emulate_tty=True
+   # )
+    admittance_control_combine_node = Node(
         package='inspection_control',
-        executable='admittance_control',
-        name='admittance_control',
-        parameters=[admittance_control_config],
+        executable='admittance_control_combine',
+        name='admittance_control_combine',
+        parameters=[admittance_control_combine_config],
         output='screen',
         emulate_tty=True
     )
@@ -82,5 +95,6 @@ def generate_launch_description():
         teleop_config_file,
         admittance_config_file,
         teleop_node,
-        admittance_control_node,
+       # admittance_control_node,
+        admittance_control_combine_node,
     ])
