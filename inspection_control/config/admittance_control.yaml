@@ -1,5 +1,5 @@
 # Space Mouse Configuration for TeleopTwistStampedJoy
-admittance_control:
+admittance_control_combine:
   ros__parameters:
     # Publishing rate (Hz)
     publish_rate: 10.0
@@ -24,4 +24,6 @@ admittance_control:
     
     # Topic names
     wrench_topic: "/teleop/wrench_cmds"
+    wrench_teleop_topic: "/teleop/wrench_cmds"
+    wrench_orientation_topic: "/depth_bg_remove/wrench_cmd_in_eoat_camera_link"
     twist_topic: "/servo_node/delta_twist_cmds"  # Updated topic for inspection cell
