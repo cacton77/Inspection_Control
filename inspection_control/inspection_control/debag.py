@@ -171,6 +171,7 @@ def debag(bag_file):
         'ee_orient_z',
         'ee_orient_w',
         'velocity_command',
+        'focus_mode'
         'is_focused'
     ])
 
@@ -206,6 +207,7 @@ def debag(bag_file):
         first_msg.end_effector_pose.pose.orientation.z,
         first_msg.end_effector_pose.pose.orientation.w,
         first_msg.velocity_command,
+        first_msg.focus_mode,
         first_msg.is_focused
     ])
 
@@ -245,6 +247,7 @@ def debag(bag_file):
             msg.end_effector_pose.pose.orientation.z,
             msg.end_effector_pose.pose.orientation.w,
             msg.velocity_command,
+            msg.focus_mode,
             msg.is_focused
         ])
 

@@ -265,6 +265,7 @@ class AutofocusNode(Node):
         # fine search near top. Thresholded at 0.1 to prevent false positives for noise changes
         if not self.fine_mode:
             if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv > 0.1:
+                self.autofocus_data.focus_mode = "adaptive fine"
                 self.get_logger().info('Entering fine')
                 self.fine_mode = True
                 v = self.kv * (self.autofocus_data.ratio - 0.5)
@@ -277,6 +278,7 @@ class AutofocusNode(Node):
                     v = 0.2  # Hardcode to keep going for infinite values
                 else:
                     v = self.kv/abs(self.autofocus_data.ratio)
+                self.autofocus_data.focus_mode = "adaptive coarse"
                 self.get_logger().info(
                     f'Coarse: ratio {self.autofocus_data.ratio:.6f}, v {v}')
         else:
@@ -296,6 +298,7 @@ class AutofocusNode(Node):
             return 0.0
 
         v = 0.25
+        self.autofocus_data.focus_mode = "ehc"
         if self.distance_traveled > self.ehc_distance:
             v = 0.0
             self.max_found = True
@@ -304,6 +307,7 @@ class AutofocusNode(Node):
     def return_to_max(self):
         # Compare current position to maximum focus position self.distance_traveled should go down
         e = self.distance_traveled - self.max_focus_value_distance
+        self.autofocus_data.focus_mode = "adaptive return to max"
         self.get_logger().info(f'Returning to max position. Err: {e:.6f}')
         if e > 0:
             v = -0.25
