@@ -188,7 +188,9 @@ class AutofocusNode(Node):
         if self.save_data:
             if not os.path.exists(self.data_path):
                 os.makedirs(self.data_path)
-            uri = f'{self.data_path}/{self.object}_{self.focus_algorithm}_{self.focus_metric}_{self.count}_{self.get_clock().now().to_msg().sec}.bag'
+            # Use consistent nanoseconds timestamp like the bag data
+            timestamp_ns = self.get_clock().now().nanoseconds
+            uri = f'{self.data_path}/{self.object}_{self.focus_algorithm}_{self.focus_metric}_{self.count}_{timestamp_ns}.bag'
             self.storage_options = StorageOptions(
                 uri=uri, storage_id='sqlite3')
             self.writer.open(self.storage_options, self.converter_options)
@@ -268,7 +270,7 @@ class AutofocusNode(Node):
                 self.autofocus_data.focus_mode = "adaptive fine"
                 self.get_logger().info('Entering fine')
                 self.fine_mode = True
-                v = self.kv * (self.autofocus_data.ratio - 0.5)
+                v = self.kv * (self.autofocus_data.ratio * 0.5)
             else:
                 # Add safety check to prevent division by zero
                 if abs(self.autofocus_data.ratio) < 1e-10:  # Very small number threshold
@@ -314,7 +316,7 @@ class AutofocusNode(Node):
         else:
             v = 0.25
         # Implement the return to max logic here
-        if abs(e) < 0.0001:  # Stop when within 0.1mm
+        if abs(e) < 0.0005:  # Stop when within 0.5mm
             v = 0.0  # Stop when close enough
             self.t_stop = self.get_clock().now().seconds_nanoseconds()[0]
             # Maybe set self.max_found = False or disable autofocus

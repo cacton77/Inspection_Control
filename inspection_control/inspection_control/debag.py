@@ -171,7 +171,7 @@ def debag(bag_file):
         'ee_orient_z',
         'ee_orient_w',
         'velocity_command',
-        'focus_mode'
+        'focus_mode',
         'is_focused'
     ])
 
