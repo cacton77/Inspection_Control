@@ -447,15 +447,6 @@ class AutofocusNode(Node):
             # Focus Metric Parameters
             if param.name == 'focus_metric':
                 self.focus_metric = param.value
-            elif param.name == 'image_topic':
-                self.image_topic = param.value
-                self.subscriber.destroy()
-                self.subscriber = self.create_subscription(
-                    CompressedImage,
-                    self.image_topic,
-                    self.image_callback,
-                    10
-                )
             elif param.name == 'roi_width':
                 self.roi_width = param.value
             elif param.name == 'roi_height':
