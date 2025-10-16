@@ -46,6 +46,7 @@ setup(
             'eoatgoalposerefinedsmoothed= realsense_inspection.eoatgoalposerefined_normalfilter:main',
             'proportionalcontroller= realsense_inspection.proportionalcontroller:main',
             'proportionalcontrollerrefined= realsense_inspection.proportionalcontrollerrefined:main',
+            'proportionalcontrollerrefined2= realsense_inspection.proportionalcontrollerrefined2:main',
         ],
     },
 )

@@ -169,6 +169,7 @@ class DepthBGRemove(Node):
         # ---- Smoothing params ----
         self.declare_parameter('ema_enable', True)     # on/off
         self.declare_parameter('ema_tau', 0.25)        # seconds; try 0.2–0.5 s
+        self.declare_parameter('ema_hold_s', 0.35)   # grace period before clearing EMA
         # Orientation P gains (Nm/rad) in main_camera_frame
         self.declare_parameter('K_rx', 200.0)   # torque gain about camera X
         self.declare_parameter('K_ry', 200.0)   # torque gain about camera Y
@@ -198,7 +199,7 @@ class DepthBGRemove(Node):
         self.standoff_mode = str(self.get_parameter('standoff_mode').value).lower()
         self.ema_enable = bool(self.get_parameter('ema_enable').value)
         self.ema_tau    = float(self.get_parameter('ema_tau').value)
-
+        self.ema_hold_s = float(self.get_parameter('ema_hold_s').value)
         # EMA state (persist across frames)
         self._ema_normal   = None      # np.ndarray (3,)
         self._ema_centroid = None      # np.ndarray (3,)
@@ -324,18 +325,21 @@ class DepthBGRemove(Node):
         self._ema_last_t = None
 
     def _publish_zero_wrench_and_error(self, stamp=None):
-      # Zero ω (error) for visibility
+        if stamp is None:
+            if self.depth_msg is not None:
+                stamp = self.depth_msg.header.stamp
+            else:
+                stamp = self.get_clock().now().to_msg()
+        # Zero ω (error) for visibility
         err = Vector3Stamped()
-        if stamp is not None:
-          err.header.stamp = stamp
+        err.header.stamp = stamp
         err.header.frame_id = self.main_camera_frame
         err.vector.x = err.vector.y = err.vector.z = 0.0
         self.pub_z_rotvec_err.publish(err)
 
       # Zero torque command
         w = WrenchStamped()
-        if stamp is not None:
-          w.header.stamp = stamp
+        w.header.stamp = stamp
         w.header.frame_id = self.main_camera_frame
         w.wrench.force.x = w.wrench.force.y = w.wrench.force.z = 0.0
         w.wrench.torque.x = w.wrench.torque.y = w.wrench.torque.z = 0.0
@@ -456,18 +460,18 @@ class DepthBGRemove(Node):
                         
                         pts_crop = np.ascontiguousarray(pts_bbox_out[sel_crop])
                         points2 = pts_crop
-                  
 
-                        # Compute PCA normal 
+                        # Compute PCA normal
                         #if pts_crop.shape[0] >= 10:
-                        if pts_crop.shape[0] >= self.min_points:
-    ...
-                            # At the end of the successful branch, remember we had a valid target:
-                            self._last_target_s = now_s
-                        else:
-                            # Not enough points → stop
-                            self._safe_stop(self.depth_msg.header.stamp)
 
+                        if pts_crop.shape[0] < self.min_points:
+                   
+                            # Not enough points → stop
+                         self._safe_stop(self.depth_msg.header.stamp,reset_ema=False)
+                         if self._last_target_s is not None and (self._now_s() - self._last_target_s) > self.ema_hold_s:
+                             self._reset_ema()
+                         return
+                        else:
                          centroid, normal = _pca_plane_normal(pts_crop)
                          # Timestamp in seconds for rate-independent alpha
                          stamp = self.depth_msg.header.stamp
