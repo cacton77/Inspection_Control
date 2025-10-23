@@ -19,6 +19,7 @@ def sobel(image_in):
 
     return sobel_value, image_out
 
+
 def sobel_cuda(image_in):
     t0 = time.time()
 
@@ -74,35 +75,33 @@ def sobel_cuda(image_in):
 
 #     return sobel_value, image_out
 
+
 def squared_gradient(image_in):
     # Convert to grayscale
-    gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
+    gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY).astype(np.float64)
 
-    # Compute the squared differences of adjacent pixels in both directions
-    gradient_x = np.diff(gray_image, axis=0)
-    gradient_y = np.diff(gray_image, axis=1)
-    squared_gradient_x = gradient_x**2
-    squared_gradient_y = gradient_y**2
+    # Compute finite differences
+    gradient_x = np.diff(gray_image, axis=1)  # shape: (H, W-1)
+    gradient_y = np.diff(gray_image, axis=0)  # shape: (H-1, W)
 
-    # # Adjust the shapes to be compatible for addition
-    min_height = min(
-        squared_gradient_x.shape[0], squared_gradient_y.shape[0])
-    min_width = min(
-        squared_gradient_x.shape[1], squared_gradient_y.shape[1])
+    # Crop to matching dimensions
+    gradient_x = gradient_x[:-1, :]  # (H-1, W-1)
+    gradient_y = gradient_y[:, :-1]  # (H-1, W-1)
 
-    squared_gradient_x = squared_gradient_x[:min_height, :min_width]
-    squared_gradient_y = squared_gradient_y[:min_height, :min_width]
+    # Squared gradient
+    squared_gradient = gradient_x**2 + gradient_y**2
 
-    # ((np.var(squared_gradient_x) + np.mean(squared_gradient_y))**1.5)/2
-    focus_value = np.var(squared_gradient_x)
+    # Focus metric: typically variance or sum of squared gradient
+    focus_value = np.var(squared_gradient)  # or np.sum(squared_gradient)
 
-    combined_gradient = np.sqrt(
-        squared_gradient_x+squared_gradient_y).astype(np.float32)
+    # Visualization (gradient magnitude)
+    gradient_magnitude = np.sqrt(squared_gradient).astype(np.float32)
     normalized_image = cv2.normalize(
-        combined_gradient, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        gradient_magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     image_out = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2RGB)
 
     return focus_value, image_out
+
 
 def squared_sobel(image_in):
     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
@@ -128,57 +127,96 @@ def squared_sobel(image_in):
     image_out = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2RGB)
     return focus_value, image_out
 
+
+# def fswm(image_in):
+#     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
+#     # ksize = 17
+#     # sigma = 1.5
+
+#     # # Apply median filter in x and y directions
+#     # median_filtered_x = cv2.medianBlur(gray_image, ksize)
+#     # median_filtered_y = cv2.medianBlur(gray_image.T, ksize).T
+
+#     # fswm_x = np.abs(gray_image - median_filtered_x)
+#     # fswm_y = np.abs(gray_image - median_filtered_y)
+#     # combined_fswm = fswm_x + fswm_y
+
+#     # # Apply Gaussian blur to denoise
+#     # denoised_combined_fswm = cv2.GaussianBlur(
+#     #     combined_fswm, (0, 0), sigmaX=sigma, sigmaY=sigma)
+
+#     # focus_value = np.var(denoised_combined_fswm)
+
+#     # normalized_image = cv2.normalize(
+#     #     denoised_combined_fswm, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+#     # image_out = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2RGB)[
+#     #     y0:y1, x0:x1]
+
+#     # Apply a bandpass filter using Difference of Gaussians (DoG)
+#     sigma_low = 2.5
+#     sigma_high = 3.0
+#     blur_low = cv2.GaussianBlur(gray_image, (0, 0), sigmaX=sigma_low)
+#     blur_high = cv2.GaussianBlur(gray_image, (0, 0), sigmaX=sigma_high)
+#     bandpass = blur_low - blur_high
+
+#     # Create a weight matrix
+#     rows, cols = bandpass.shape
+#     center_y, center_x = rows // 2, cols // 2
+#     Y, X = np.ogrid[:rows, :cols]
+#     distance = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+#     max_distance = np.max(distance)
+#     # Weights decrease with distance from center
+#     weights = 1 - (distance / max_distance)
+
+#     # Compute the weighted mean
+#     weighted_bandpass = bandpass * weights
+#     focus_value = np.var(bandpass)
+
+#     # For visualization, normalize the weighted bandpass image
+#     bandpass_normalized = cv2.normalize(
+#         weighted_bandpass, None, 0, 255, cv2.NORM_MINMAX)
+#     image_out = cv2.cvtColor(bandpass_normalized.astype(
+#         np.uint8), cv2.COLOR_GRAY2RGB)
+
+#     return focus_value, image_out
+
 def fswm(image_in):
-    gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
-    # ksize = 17
-    # sigma = 1.5
+    gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY).astype(np.float64)
 
-    # # Apply median filter in x and y directions
-    # median_filtered_x = cv2.medianBlur(gray_image, ksize)
-    # median_filtered_y = cv2.medianBlur(gray_image.T, ksize).T
+    # FSWM parameters
+    ksize = 5  # Median filter kernel size (must be odd)
 
-    # fswm_x = np.abs(gray_image - median_filtered_x)
-    # fswm_y = np.abs(gray_image - median_filtered_y)
-    # combined_fswm = fswm_x + fswm_y
+    # Apply median filter (acts as low-pass filter)
+    median_filtered = cv2.medianBlur(
+        gray_image.astype(np.uint8), ksize).astype(np.float64)
 
-    # # Apply Gaussian blur to denoise
-    # denoised_combined_fswm = cv2.GaussianBlur(
-    #     combined_fswm, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    # High-pass filter: original - median (extracts high-frequency content)
+    high_freq = np.abs(gray_image - median_filtered)
 
-    # focus_value = np.var(denoised_combined_fswm)
-
-    # normalized_image = cv2.normalize(
-    #     denoised_combined_fswm, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    # image_out = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2RGB)[
-    #     y0:y1, x0:x1]
-
-    # Apply a bandpass filter using Difference of Gaussians (DoG)
-    sigma_low = 2.5
-    sigma_high = 3.0
-    blur_low = cv2.GaussianBlur(gray_image, (0, 0), sigmaX=sigma_low)
-    blur_high = cv2.GaussianBlur(gray_image, (0, 0), sigmaX=sigma_high)
-    bandpass = blur_low - blur_high
-
-    # Create a weight matrix
-    rows, cols = bandpass.shape
+    # Optional: Apply center weighting (emphasizes center of image)
+    rows, cols = high_freq.shape
     center_y, center_x = rows // 2, cols // 2
     Y, X = np.ogrid[:rows, :cols]
     distance = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
-    max_distance = np.max(distance)
-    # Weights decrease with distance from center
-    weights = 1 - (distance / max_distance)
+    max_distance = np.sqrt(center_x**2 + center_y**2)
 
-    # Compute the weighted mean
-    weighted_bandpass = bandpass * weights
-    focus_value = np.var(bandpass)
+    # Gaussian-like weighting (higher weight at center)
+    sigma_weight = max_distance / 3
+    weights = np.exp(-(distance**2) / (2 * sigma_weight**2))
 
-    # For visualization, normalize the weighted bandpass image
-    bandpass_normalized = cv2.normalize(
-        weighted_bandpass, None, 0, 255, cv2.NORM_MINMAX)
-    image_out = cv2.cvtColor(bandpass_normalized.astype(
-        np.uint8), cv2.COLOR_GRAY2RGB)
+    # Apply weights to high-frequency content
+    weighted_high_freq = high_freq * weights
+
+    # Focus metric: sum or variance of weighted high-frequency content
+    focus_value = np.sum(weighted_high_freq)  # or np.var(high_freq)
+
+    # For visualization
+    normalized_image = cv2.normalize(
+        high_freq, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    image_out = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2RGB)
 
     return focus_value, image_out
+
 
 def fft(image_in):
     # # Convert the image to grayscale
@@ -225,7 +263,7 @@ def fft(image_in):
     center_y, center_x = magnitude_spectrum.shape[0] // 2, magnitude_spectrum.shape[1] // 2
     low_freq_size = 10
     magnitude_spectrum[center_y - low_freq_size:center_y + low_freq_size,
-                        center_x - low_freq_size:center_x + low_freq_size] = 0
+                       center_x - low_freq_size:center_x + low_freq_size] = 0
     # Focus measure: sum of magnitude spectrum values
     focus_value = np.var(magnitude_spectrum)
     magnitude_spectrum_log = 20 * np.log1p(magnitude_spectrum)
@@ -234,6 +272,7 @@ def fft(image_in):
     image_out = cv2.cvtColor(image_out.astype(
         np.uint8), cv2.COLOR_GRAY2BGR)
     return focus_value, image_out
+
 
 def mix_sobel(image_in):
     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
@@ -250,6 +289,7 @@ def mix_sobel(image_in):
     image_out = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2RGB)
 
     return focus_value, image_out
+
 
 def sobel_laplacian(image_in):
     # Convert to grayscale
@@ -276,6 +316,7 @@ def sobel_laplacian(image_in):
 
     return focus_value, image_out
 
+
 def wavelet(image_in):
     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
     roi = gray_image
@@ -290,13 +331,13 @@ def wavelet(image_in):
 
     # Perform single-level Haar wavelet transform manually
     LL = (roi[0::2, 0::2] + roi[0::2, 1::2] +
-            roi[1::2, 0::2] + roi[1::2, 1::2]) / 4
+          roi[1::2, 0::2] + roi[1::2, 1::2]) / 4
     LH = (roi[0::2, 0::2] - roi[0::2, 1::2] +
-            roi[1::2, 0::2] - roi[1::2, 1::2]) / 4
+          roi[1::2, 0::2] - roi[1::2, 1::2]) / 4
     HL = (roi[0::2, 0::2] + roi[0::2, 1::2] -
-            roi[1::2, 0::2] - roi[1::2, 1::2]) / 4
+          roi[1::2, 0::2] - roi[1::2, 1::2]) / 4
     HH = (roi[0::2, 0::2] - roi[0::2, 1::2] -
-            roi[1::2, 0::2] + roi[1::2, 1::2]) / 4
+          roi[1::2, 0::2] + roi[1::2, 1::2]) / 4
 
     # Calculate the energy of the high-frequency components
     high_freq = np.sqrt(LH**2 + HL**2 + HH**2 - LL**2)
@@ -311,6 +352,7 @@ def wavelet(image_in):
         np.uint8), cv2.COLOR_GRAY2RGB)
 
     return focus_value, image_out
+
 
 def lpq(image_in):
     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
@@ -355,6 +397,7 @@ def lpq(image_in):
 
     return focus_value, image_out
 
+
 def combined_focus_measure(image_in):
     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
 
@@ -381,6 +424,7 @@ def combined_focus_measure(image_in):
 
     return focus_value, image_out
 
+
 def combined_focus_measure2(image_in):
     gray_image = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
 
@@ -404,7 +448,7 @@ def combined_focus_measure2(image_in):
     center_y, center_x = magnitude_spectrum.shape[0] // 2, magnitude_spectrum.shape[1] // 2
     low_freq_size = 10
     magnitude_spectrum[center_y - low_freq_size:center_y + low_freq_size,
-                        center_x - low_freq_size:center_x + low_freq_size] = 0
+                       center_x - low_freq_size:center_x + low_freq_size] = 0
 
     fft_var = np.var(magnitude_spectrum)
 

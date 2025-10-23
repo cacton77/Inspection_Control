@@ -46,9 +46,14 @@ class AutofocusNode(Node):
                 ('roi_x', 0.5),
                 ('roi_y', 0.5),
                 # Focus Algorithm Parameters
+                ('kv', 0.2),
+                ('N_ema', 3),
                 ('control_rate', 10.0),
                 ('focus_algorithm', 'default'),
                 ('ehc_distance', 0.05),
+                # Fine mode threshold parameters
+                ('ddfv_threshold', 0.1),
+                ('dfv_threshold', 0.1),
                 # Save Data Parameters
                 ('object', ''),
                 ('save_data', False),
@@ -73,12 +78,23 @@ class AutofocusNode(Node):
             'roi_y').get_parameter_value().double_value
 
         # Focus Algorithm Parameters
+        self.kv = self.get_parameter('kv').get_parameter_value().double_value
         self.focus_algorithm = self.get_parameter(
             'focus_algorithm').get_parameter_value().string_value
         self.control_rate = self.get_parameter(
             'control_rate').get_parameter_value().double_value
         self.ehc_distance = self.get_parameter(
             'ehc_distance').get_parameter_value().double_value
+
+        # Smoothing Parameter
+        self.N_ema = self.get_parameter(
+            'N_ema').get_parameter_value().integer_value
+
+        # Fine mode threshold parameters
+        self.ddfv_threshold = self.get_parameter(
+            'ddfv_threshold').get_parameter_value().double_value
+        self.dfv_threshold = self.get_parameter(
+            'dfv_threshold').get_parameter_value().double_value
 
         # ROS Bag2 Writer Initialization
         self.object = self.get_parameter(
@@ -127,11 +143,9 @@ class AutofocusNode(Node):
         self.bridge = CvBridge()
 
         # EMA calculation variables
-        self.N_ema = 3  # EMA smoothing factor parameter
         self.ema_focus_value2 = None
         self.previous_dema_focus_value = None
         self.previous_dfv = 0
-        self.kv = 0.8
         self.ddfv = 0
         self.ema_initialized = False  # Track if EMA has been initialized
         self.t_stop = None  # Timer for holding at max focus position
@@ -198,11 +212,12 @@ class AutofocusNode(Node):
         # Implement autofocus termination logic here
         self.get_logger().info('Ending autofocus...')
         self.autofocus_enabled = False
-        # Close the bag file after writing
-        self.writer.close()
-        debag(self.storage_options.uri)
-        # Update parameters or state as needed
-        self.count += 1
+        if self.save_data:
+            # Close the bag file after writing
+            self.writer.close()
+            debag(self.storage_options.uri)
+            # Update parameters or state as needed
+            self.count += 1
 
     def image_callback(self, msg: CompressedImage):
         # Process the incoming image message
@@ -264,11 +279,11 @@ class AutofocusNode(Node):
         # Calculate velocity
         # fine search near top. Thresholded at 0.1 to prevent false positives for noise changes
         if not self.fine_mode:
-            if self.autofocus_data.smooth_ddfv < 0.1 and self.autofocus_data.dfv > 0.1:
+            if self.autofocus_data.smooth_ddfv < self.ddfv_threshold and self.autofocus_data.dfv > self.dfv_threshold:
                 self.autofocus_data.focus_mode = "adaptive fine"
                 self.get_logger().info('Entering fine')
                 self.fine_mode = True
-                v = self.kv * (self.autofocus_data.ratio - 0.5)
+                v = self.kv * (self.autofocus_data.ratio * 0.5)
             else:
                 # Add safety check to prevent division by zero
                 if abs(self.autofocus_data.ratio) < 1e-10:  # Very small number threshold
@@ -277,7 +292,7 @@ class AutofocusNode(Node):
                 elif self.autofocus_data.ratio == float('inf') or self.autofocus_data.ratio == float('-inf'):
                     v = 0.2  # Hardcode to keep going for infinite values
                 else:
-                    v = self.kv/abs(self.autofocus_data.ratio)
+                    v = self.kv/abs(self.autofocus_data.ratio*0.5)
                 self.autofocus_data.focus_mode = "adaptive coarse"
                 self.get_logger().info(
                     f'Coarse: ratio {self.autofocus_data.ratio:.6f}, v {v}')
@@ -287,7 +302,7 @@ class AutofocusNode(Node):
                 v = 0.0
                 self.max_found = True
             else:
-                v = self.kv * (self.autofocus_data.ratio - 0.5)
+                v = self.kv * (self.autofocus_data.ratio * 0.5)
                 self.get_logger().info(
                     f'Fine mode: ratio {self.autofocus_data.ratio:.6f}, v {v}, ,dfv {self.autofocus_data.dfv}, smoothddfv {self.autofocus_data.smooth_ddfv}')
         return v
@@ -297,7 +312,7 @@ class AutofocusNode(Node):
         if self.autofocus_data is None:
             return 0.0
 
-        v = 0.25
+        v = self.kv
         self.autofocus_data.focus_mode = "ehc"
         if self.distance_traveled > self.ehc_distance:
             v = 0.0
@@ -456,10 +471,17 @@ class AutofocusNode(Node):
             elif param.name == 'roi_y':
                 self.roi_y = param.value
             # Focus Algorithm Parameters
+            elif param.name == 'kv':
+                self.kv = param.value
             elif param.name == 'focus_algorithm':
                 self.focus_algorithm = param.value
             elif param.name == 'ehc_distance':
                 self.ehc_distance = param.value
+            # Fine Mode Threshold Parameters
+            elif param.name == 'ddfv_threshold':
+                self.ddfv_threshold = param.value
+            elif param.name == 'dfv_threshold':
+                self.dfv_threshold = param.value
             # Save Data Parameters
             elif param.name == 'object':
                 self.object = param.value

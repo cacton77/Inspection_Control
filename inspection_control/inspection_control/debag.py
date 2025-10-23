@@ -42,6 +42,18 @@ def generate_focus_plots(csv_filepath):
     # Convert timestamps to seconds relative to start
     timestamps_sec = (df['timestamp'] - df['timestamp'].iloc[0]) / 1e9
 
+    # Find time of focus mode switch to fine mode and to return to max
+    fine_mode_switch_time = None
+    max_mode_switch_time = None
+    if not df['focus_mode'].iloc[0] == 'ehc':
+        # Check if adaptive fine mode was used
+        if 'adaptive fine' in df['focus_mode'].values:
+            fine_mode_switch_time = timestamps_sec[df['focus_mode']
+                                                   == 'adaptive fine'].iloc[0]
+        if 'adaptive return to max' in df['focus_mode'].values:
+            max_mode_switch_time = timestamps_sec[df['focus_mode']
+                                                  == 'adaptive return to max'].iloc[0]
+
     # Plot 1: Focus value vs distance traveled
     plt.figure(figsize=(10, 6))
     plt.plot(distances, df['focus_value'], linewidth=1.5)
@@ -61,6 +73,12 @@ def generate_focus_plots(csv_filepath):
 
     # Subplot 0: distance traveled vs time
     axes[0].plot(timestamps_sec, distances, linewidth=1.5, color='tab:cyan')
+    if fine_mode_switch_time is not None:
+        axes[0].axvline(x=fine_mode_switch_time, color='b',
+                        linestyle='--', label='Fine Mode Switch')
+    if max_mode_switch_time is not None:
+        axes[0].axvline(x=max_mode_switch_time, color='g',
+                        linestyle='--', label='Max Found')
     axes[0].set_xlabel('Time (s)', fontsize=11)
     axes[0].set_ylabel('Distance Traveled (m)', fontsize=11)
     axes[0].set_title('Distance Traveled vs Time', fontsize=12)
@@ -73,6 +91,12 @@ def generate_focus_plots(csv_filepath):
                  label='ema_focus_value', linewidth=1.5)
     axes[1].plot(timestamps_sec, df['dema_focus_value'],
                  label='dema_focus_value', linewidth=1.5)
+    if fine_mode_switch_time is not None:
+        axes[1].axvline(x=fine_mode_switch_time, color='b',
+                        linestyle='--', label='Fine Mode Switch')
+    if max_mode_switch_time is not None:
+        axes[1].axvline(x=max_mode_switch_time, color='g',
+                        linestyle='--', label='Max Found')
     axes[1].set_xlabel('Time (s)', fontsize=11)
     axes[1].set_ylabel('Focus Value', fontsize=11)
     axes[1].set_title('Focus Values vs Time', fontsize=12)
@@ -81,6 +105,12 @@ def generate_focus_plots(csv_filepath):
 
     # Subplot 2: dfv vs time
     axes[2].plot(timestamps_sec, df['dfv'], linewidth=1.5, color='tab:orange')
+    if fine_mode_switch_time is not None:
+        axes[2].axvline(x=fine_mode_switch_time, color='b',
+                        linestyle='--', label='Fine Mode Switch')
+    if max_mode_switch_time is not None:
+        axes[2].axvline(x=max_mode_switch_time, color='g',
+                        linestyle='--', label='Max Found')
     axes[2].set_xlabel('Time (s)', fontsize=11)
     axes[2].set_ylabel('DFV', fontsize=11)
     axes[2].set_title('DFV vs Time', fontsize=12)
@@ -89,6 +119,12 @@ def generate_focus_plots(csv_filepath):
     # Subplot 3: smooth_ddfv vs time
     axes[3].plot(timestamps_sec, df['smooth_ddfv'],
                  linewidth=1.5, color='tab:green')
+    if fine_mode_switch_time is not None:
+        axes[3].axvline(x=fine_mode_switch_time, color='b',
+                        linestyle='--', label='Fine Mode Switch')
+    if max_mode_switch_time is not None:
+        axes[3].axvline(x=max_mode_switch_time, color='g',
+                        linestyle='--', label='Max Found')
     axes[3].set_xlabel('Time (s)', fontsize=11)
     axes[3].set_ylabel('Smooth DDFV', fontsize=11)
     axes[3].set_title('Smooth DDFV vs Time', fontsize=12)
@@ -96,6 +132,12 @@ def generate_focus_plots(csv_filepath):
 
     # Subplot 4: ratio vs time
     axes[4].plot(timestamps_sec, df['ratio'], linewidth=1.5, color='tab:red')
+    if fine_mode_switch_time is not None:
+        axes[4].axvline(x=fine_mode_switch_time, color='b',
+                        linestyle='--', label='Fine Mode Switch')
+    if max_mode_switch_time is not None:
+        axes[4].axvline(x=max_mode_switch_time, color='g',
+                        linestyle='--', label='Max Found')
     axes[4].set_xlabel('Time (s)', fontsize=11)
     axes[4].set_ylabel('Ratio', fontsize=11)
     axes[4].set_title('Ratio vs Time', fontsize=12)
@@ -104,6 +146,12 @@ def generate_focus_plots(csv_filepath):
     # Subplot 5: velocity command vs time
     axes[5].plot(timestamps_sec, df['velocity_command'],
                  linewidth=1.5, color='tab:purple')
+    if fine_mode_switch_time is not None:
+        axes[5].axvline(x=fine_mode_switch_time, color='b',
+                        linestyle='--', label='Fine Mode Switch')
+    if max_mode_switch_time is not None:
+        axes[5].axvline(x=max_mode_switch_time, color='g',
+                        linestyle='--', label='Max Found')
     axes[5].set_xlabel('Time (s)', fontsize=11)
     axes[5].set_ylabel('Velocity Command (m/s)', fontsize=11)
     axes[5].set_title('Velocity Command vs Time', fontsize=12)

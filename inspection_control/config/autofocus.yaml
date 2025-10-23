@@ -1,15 +1,20 @@
 autofocus:
   ros__parameters:
-    focus_metric: 'sobel'
-    image_topic: '/camera/image_raw/compressed'
-    roi_width: 100
+    autofocus_enabled: false
+    control_rate: 10.0
+    data_path: /data/autofocus
+    ddfv_threshold: -0.2
+    dfv_threshold: 0.2
+    ehc_distance: 0.15
+    focus_algorithm: default
+    focus_metric: sobel
+    image_topic: /camera/image_raw/compressed
+    kv: 0.2
+    N_ema: 3
+    object: ''
     roi_height: 100
+    roi_width: 100
     roi_x: 0.5
     roi_y: 0.5
-    control_rate: 10.0
-    focus_algorithm: default
-    ehc_distance: 0.05
-    object: ''
     save_data: false
-    data_path: '/data/autofocus'
-    autofocus_enabled: false
+    use_sim_time: false
