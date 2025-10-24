@@ -15,7 +15,7 @@ from tf2_ros import TransformException
 from cv_bridge import CvBridge, CvBridgeError
 
 import inspection_control.focus_metrics as focus_metrics
-from inspection_control.debag import debag
+from inspection_control.debag_autofocus import debag
 
 from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import CompressedImage

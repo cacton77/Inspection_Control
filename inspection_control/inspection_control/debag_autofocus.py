@@ -56,7 +56,9 @@ def generate_focus_plots(csv_filepath):
 
     # Plot 1: Focus value vs distance traveled
     plt.figure(figsize=(10, 6))
-    plt.plot(distances, df['focus_value'], linewidth=1.5)
+    # Cut distances off when df['focus_value'] is 'adaptive return to max'
+    valid_indices = df['focus_value'] != 'adaptive return to max'
+    plt.plot(distances[valid_indices], df['focus_value'][valid_indices], linewidth=1.5)
     plt.xlabel('Distance Traveled (m)', fontsize=12)
     plt.ylabel('Focus Value', fontsize=12)
     plt.title(

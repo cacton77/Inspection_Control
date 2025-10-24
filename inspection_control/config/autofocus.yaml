@@ -18,3 +18,5 @@ autofocus:
     roi_y: 0.5
     save_data: false
     use_sim_time: false
+    data_path: '/data/AutofocusData'
+    autofocus_enabled: false
