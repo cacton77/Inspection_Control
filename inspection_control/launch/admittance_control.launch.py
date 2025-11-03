@@ -11,6 +11,11 @@ def generate_launch_description():
     """Generate launch description for teleop_twist_stamped_joy node."""
 
     # Launch arguments
+    orientation_config_file = DeclareLaunchArgument(
+        'orientation_config_file',
+        default_value='orientation_controller.yaml',
+        description='Name of controller configuration file'
+    )
     autofocus_config_file = DeclareLaunchArgument(
         'autofocus_config_file',
         default_value='autofocus.yaml',
@@ -27,6 +32,11 @@ def generate_launch_description():
         description='Name of controller configuration file'
     )
 
+    orientation_config = PathJoinSubstitution([
+        FindPackageShare('inspection_control'),
+        'config',
+        LaunchConfiguration('orientation_config_file')
+    ])
     autofocus_config = PathJoinSubstitution([
         FindPackageShare('inspection_control'),
         'config',
@@ -47,7 +57,15 @@ def generate_launch_description():
         'config',
         LaunchConfiguration('admittance_config_file')
     ])
-
+    
+    orientation_control_node = Node(
+        package='inspection_control',
+        executable='orientation_control_node',
+        name='orientation_controller',
+        parameters=[orientation_config],
+        output='screen',
+        emulate_tty=True
+    )
     joy_node = Node(
         package='joy',
         executable="joy_node",
@@ -89,6 +107,8 @@ def generate_launch_description():
         emulate_tty=True
     )
     return LaunchDescription([
+        orientation_config_file,
+        orientation_control_node,
         autofocus_config_file,
         autofocus_node,
         joy_node,
