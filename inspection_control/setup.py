@@ -31,7 +31,7 @@ setup(
             'multi_speed_autofocus = inspection_control.multi_speed_autofocus_node:main',
             'autofocus_node = inspection_control.autofocus_node:main',
             'admittance_control_combine = inspection_control.admittance_control_node_combine:main',
-            'orientationcontrol_node = inspection_control.orientationcontrol_node:main',
+            'orientation_control_node = inspection_control.orientation_control_node:main',
         ],
     },
 )
