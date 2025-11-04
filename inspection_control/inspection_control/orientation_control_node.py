@@ -175,6 +175,7 @@ class Orientation_Control_Node(Node):
         self.declare_parameter('K_rz', 200.0)   # torque gain about camera Z (used by SO3 error)
         self.declare_parameter('no_target_timeout_s', 0.25)  # after this, reset EMA & declare "lost"
         self.declare_parameter('publish_zero_when_lost', True)
+        self.declare_parameter('orientation_control_enabled', False)
         # Optional torque saturation (Nm)
         #self.declare_parameter('torque_limit', 3.0)
 
@@ -218,6 +219,7 @@ class Orientation_Control_Node(Node):
         # Loss tracking
         self._had_target_last_cycle = False
         self._last_target_time_s = None  # float seconds of last valid crop/pose
+        self.orientation_control_enabled = bool(self.get_parameter('orientation_control_enabled').value)
         # Live tuning
         self.add_on_set_parameters_callback(self._on_param_update)
         # QoS profile 
@@ -532,26 +534,29 @@ class Orientation_Control_Node(Node):
                             err_msg.header.frame_id = self.main_camera_frame
                             err_msg.vector.x, err_msg.vector.y, err_msg.vector.z = map(float, omega)
                             self.pub_z_rotvec_err.publish(err_msg)
+                            if self.orientation_control_enabled:
 
-                            # Proportional torque τ = K_R * ω
-                            K_R = np.diag([self.K_rx, self.K_ry, self.K_rz])
-                            tau = (K_R @ omega).astype(np.float32)
+                             # Proportional torque τ = K_R * ω
+                             K_R = np.diag([self.K_rx, self.K_ry, self.K_rz])
+                             tau = (K_R @ omega).astype(np.float32)
 
-                            # Saturation
-                            #lim = self.torque_limit
-                            #tau = np.clip(tau, -lim, lim)
+                             # Saturation
+                             #lim = self.torque_limit
+                             #tau = np.clip(tau, -lim, lim)
 
-                            # Publish as Wrench (torque only; set forces to 0 or add your own position control)
-                            w = WrenchStamped()
-                            w.header = self.depth_msg.header
-                            w.header.frame_id = self.main_camera_frame
-                            w.wrench.force.x = 0.0
-                            w.wrench.force.y = 0.0
-                            w.wrench.force.z = 0.0
-                            w.wrench.torque.x = float(tau[0])
-                            w.wrench.torque.y = float(tau[1])
-                            w.wrench.torque.z = float(tau[2])  # will be ~0 for Z-only error
-                            self.pub_wrench_cmd.publish(w)
+                             # Publish as Wrench (torque only; set forces to 0 or add your own position control)
+                             w = WrenchStamped()
+                             w.header = self.depth_msg.header
+                             w.header.frame_id = self.main_camera_frame
+                             w.wrench.force.x = 0.0
+                             w.wrench.force.y = 0.0
+                             w.wrench.force.z = 0.0
+                             w.wrench.torque.x = float(tau[0])
+                             w.wrench.torque.y = float(tau[1])
+                             w.wrench.torque.z = float(tau[2])  # will be ~0 for Z-only error
+                             self.pub_wrench_cmd.publish(w)
+                            else:
+                                self._publish_zero_wrench()
                             # Mark this cycle as valid
                             measurement_ok = True
                             self._had_target_last_cycle = True
@@ -648,6 +653,8 @@ class Orientation_Control_Node(Node):
                 self.no_target_timeout_s = float(p.value)
             elif p.name == 'publish_zero_when_lost':
                 self.publish_zero_when_lost = bool(p.value)
+            elif p.name == 'orientation_control_enabled':
+                self.orientation_control_enabled = bool(p.value)
         return SetParametersResult(successful=True)
 
 
