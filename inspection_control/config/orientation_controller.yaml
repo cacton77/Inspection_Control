@@ -27,3 +27,4 @@ orientation_controller:
     K_rz: 200.0
     no_target_timeout: 0.25
     publish_zero_when_lost: True
+    orientation_control_enabled: False
