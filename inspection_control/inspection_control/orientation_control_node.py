@@ -139,10 +139,10 @@ def _z_axis_rotvec_error(z_goal: np.ndarray) -> np.ndarray:
     axis /= n
     return (theta * axis).astype(np.float32)
 
-class DepthBGRemove(Node):
+class Orientation_Control_Node(Node):
     # Node that gives desired EOAT pose based on depth image, bounding box, and cropping
     def __init__(self):
-        super().__init__('depth_bg_remove')
+        super().__init__('orientation_controller')
 
         sub_cb_group = ReentrantCallbackGroup()
         timer_cb_group = MutuallyExclusiveCallbackGroup()
@@ -260,7 +260,7 @@ class DepthBGRemove(Node):
             Vector3Stamped, f'/{self.get_name()}/z_axis_rotvec_error_in_{self.main_camera_frame}', 10
         )
         self.pub_wrench_cmd = self.create_publisher(
-            WrenchStamped, f'/{self.get_name()}/wrench_cmd_in_{self.main_camera_frame}', 10
+            WrenchStamped, f'/{self.get_name()}/wrench_cmds', 10
         )
 
         self.get_logger().info(
@@ -657,7 +657,7 @@ class DepthBGRemove(Node):
 
 def main():
     rclpy.init()
-    node = DepthBGRemove()
+    node = Orientation_Control_Node()
     
     # Use MultiThreadedExecutor with at least 2 threads
     executor = MultiThreadedExecutor()
