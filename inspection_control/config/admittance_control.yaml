@@ -25,5 +25,5 @@ admittance_control_combine:
     # Topic names
     wrench_topic: "/teleop/wrench_cmds"
     wrench_teleop_topic: "/teleop/wrench_cmds"
-    wrench_orientation_topic: "/depth_bg_remove/wrench_cmd_in_eoat_camera_link"
+    wrench_orientation_topic: "/orientation_controller/wrench_cmds"
     twist_topic: "/servo_node/delta_twist_cmds"  # Updated topic for inspection cell

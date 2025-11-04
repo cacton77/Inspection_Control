@@ -40,7 +40,7 @@ class AdmittanceControlNode(Node):
                 ('frame_id', 'eoat_camera_link'),
                 ('wrench_topic', '/teleop/wrench_cmds'),
                 ('wrench_teleop_topic', '/teleop/wrench_cmds'),
-                ('wrench_orientation_topic', '/depth_bg_remove/wrench_cmd_in_eoat_camera_link'),
+                ('wrench_orientation_topic', '/orientation_controller/wrench_cmds'),
                 ('twist_topic', '/servo_node/delta_twist_cmds'),
 
                 # Optional safety/comfort limits (set to 0 to disable)
