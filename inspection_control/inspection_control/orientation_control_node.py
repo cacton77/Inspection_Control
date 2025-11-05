@@ -21,7 +21,7 @@ from visualization_msgs.msg import Marker
 from geometry_msgs.msg import PoseStamped, Quaternion
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
-
+from viewpoint_generation_interfaces.msg import OrientationControlData
 
 from tf2_ros import Buffer, TransformListener, TransformException
 
