@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 import numpy.linalg as LA
 import copy
+import os
 
 import rclpy
 from rclpy.node import Node
@@ -22,6 +23,10 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from viewpoint_generation_interfaces.msg import OrientationControlData
+from geometry_msgs.msg import Point, Vector3
+
+from rosbag2_py import SequentialWriter, StorageOptions, ConverterOptions, TopicMetadata
+from rclpy.serialization import serialize_message
 
 from tf2_ros import Buffer, TransformListener, TransformException
 
@@ -73,7 +78,6 @@ def _pca_plane_normal(pts_np: np.ndarray):
         n = -n
     n /= (LA.norm(n) + 1e-12)
     return c, n
-
 def _quaternion_from_z(normal: np.ndarray) -> Quaternion:
     """Return quaternion with +Z aligned with normal."""
     z = normal / LA.norm(normal)
@@ -139,7 +143,7 @@ def _z_axis_rotvec_error(z_goal: np.ndarray) -> np.ndarray:
     axis /= n
     return (theta * axis).astype(np.float32)
 
-class Orientation_Control_Node(Node):
+class OrientationControlNode(Node):
     # Node that gives desired EOAT pose based on depth image, bounding box, and cropping
     def __init__(self):
         super().__init__('orientation_controller')
@@ -176,6 +180,9 @@ class Orientation_Control_Node(Node):
         self.declare_parameter('no_target_timeout_s', 0.25)  # after this, reset EMA & declare "lost"
         self.declare_parameter('publish_zero_when_lost', True)
         self.declare_parameter('orientation_control_enabled', False)
+        self.declare_parameter('save_data', False)
+        self.declare_parameter('data_path', '/tmp')
+        self.declare_parameter('object', '')
         # Optional torque saturation (Nm)
         #self.declare_parameter('torque_limit', 3.0)
 
@@ -220,6 +227,19 @@ class Orientation_Control_Node(Node):
         self._had_target_last_cycle = False
         self._last_target_time_s = None  # float seconds of last valid crop/pose
         self.orientation_control_enabled = bool(self.get_parameter('orientation_control_enabled').value)
+        #save data parameters
+        self.save_data = bool(self.get_parameter('save_data').value)
+        self.data_path = self.get_parameter('data_path').get_parameter_value().string_value
+        self.object = self.get_parameter('object').get_parameter_value().string_value
+        self.storage_options = StorageOptions(
+            uri=self.data_path, storage_id='sqlite3')
+        self.converter_options = ConverterOptions(
+            input_serialization_format='cdr', output_serialization_format='cdr')
+        self.writer = SequentialWriter()
+        self.topic_info = TopicMetadata(
+            name='orientation_control_data',
+            type='viewpoint_generation_interfaces/msg/OrientationControlData',
+            serialization_format='cdr')
         # Live tuning
         self.add_on_set_parameters_callback(self._on_param_update)
         # QoS profile 
@@ -236,6 +256,9 @@ class Orientation_Control_Node(Node):
         # TF2 for transforms to target_frame
         self.tf_buffer = Buffer(cache_time=Duration(seconds=0.5))
         self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Orientation control data msg
+        self.ocd = OrientationControlData()
 
         # Subs
         self.sub_info = self.create_subscription(CameraInfo, self.camera_info_topic, self.on_info, qos)
@@ -264,6 +287,10 @@ class Orientation_Control_Node(Node):
         self.pub_wrench_cmd = self.create_publisher(
             WrenchStamped, f'/{self.get_name()}/wrench_cmds', 10
         )
+        
+        # keep a “last torque” handy so we can report it in the bundle
+        self._last_tau = np.zeros(3, dtype=np.float32)
+
 
         self.get_logger().info(
             'Background remover running:\n'
@@ -274,11 +301,35 @@ class Orientation_Control_Node(Node):
             f'  viz_enable={self.viz_enable}, publish_pointcloud={self.publish_pointcloud}\n'
             f'  pcd_downsampling_stride={self.pcd_downsampling_stride}\n'
             f'  target_frame={self.target_frame}'
-           
             f'  main_camera_frame={self.main_camera_frame}'
             f'crop_radius={self.crop_radius:.3f}, crop_z=[{self.crop_z_min:.3f},{self.crop_z_max:.3f}]'
             f'  standoff_mode={self.standoff_mode}, standoff_m={self.standoff_m:.3f}'     
         )
+
+    def enable_orientation_control(self):
+        self.orientation_control_enabled = True
+        self.get_logger().info('Orientation control ENABLED.')  
+        # Open the bag file for writing
+        if self.save_data:
+            if not os.path.exists(self.data_path):
+                os.makedirs(self.data_path)
+            uri = f'{self.data_path}/{self.object}_{self.get_clock().now().to_msg().sec}.bag'
+            self.storage_options = StorageOptions(
+                uri=uri, storage_id='sqlite3')
+            self.get_logger().info(f'Opening bag file at: {uri}')
+            self.writer.open(self.storage_options, self.converter_options)
+            self.writer.create_topic(self.topic_info)
+
+    def disable_orientation_control(self):
+        self.orientation_control_enabled = False
+        self.get_logger().info('Orientation control DISABLED.')
+        # Close the bag file
+        if self.save_data:
+            self.writer.close()
+            self.get_logger().info(f'Closed bag file.')  
+            #debag(self.storage_options.uri)
+            # Update parameters or state as needed
+
     def _publish_zero_wrench(self):
         w = WrenchStamped()
         # use the latest header if available; otherwise make a minimal header
@@ -338,6 +389,15 @@ class Orientation_Control_Node(Node):
         stamp = self.depth_msg.header.stamp
         now_s = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
         measurement_ok = False
+        num_points_bbox = 0
+        num_points_crop = 0
+
+        centroid_out = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        normal_out   = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        goal_pose_out = None  # will become a PoseStamped if we have one
+        rotvec_err_out = np.zeros(3, dtype=np.float32)
+        tau_out = np.zeros(3, dtype=np.float32)
+
      
        # msg = self.depth_msg
         # Convert ROS Image -> numpy
@@ -354,6 +414,7 @@ class Orientation_Control_Node(Node):
         # Build mask
         valid = np.isfinite(depth_m) & (depth_m > 0.0)
         mask = valid & (depth_m >= self.dmap_filter_min) & (depth_m <= self.dmap_filter_max)
+        num_points_masked = int(np.count_nonzero(mask))
 
         # Defaults for pointcloud outputs
         points1 = np.zeros((0, 3), dtype=np.float32)
@@ -431,7 +492,7 @@ class Orientation_Control_Node(Node):
                         pts_bbox_out = np.zeros((0, 3), dtype=np.float32)
 
                     points1 = pts_bbox_out
-
+                    num_points_bbox = int(points1.shape[0])
                     if pts_bbox_out.shape[0] > 0:
                         Xc, Yc, Zc = pts_bbox_out[:, 0], pts_bbox_out[:, 1], pts_bbox_out[:, 2]
                         r2 = Xc*Xc + Yc*Yc
@@ -442,7 +503,7 @@ class Orientation_Control_Node(Node):
                         
                         pts_crop = np.ascontiguousarray(pts_bbox_out[sel_crop])
                         points2 = pts_crop
-                  
+                        num_points_crop = int(pts_crop.shape[0])
 
                         # Compute PCA normal 
                         if pts_crop.shape[0] >= 10:
@@ -484,7 +545,7 @@ class Orientation_Control_Node(Node):
                             cen_s = self._ema_centroid
                             nrm_s = self._ema_normal
                             self._ema_last_t = now_s
-
+                
                             pose = PoseStamped()
                             pose.header = self.depth_msg.header
                             pose.header.frame_id = self.main_camera_frame
@@ -528,6 +589,11 @@ class Orientation_Control_Node(Node):
 
                             # --- Z-axis alignment error in main_camera_frame ---
                             omega = _z_axis_rotvec_error(zg)   # 3-vector [ωx, ωy, ωz]
+                            
+                            centroid_out = cen_s.astype(np.float32)
+                            normal_out   = nrm_s.astype(np.float32)
+                            rotvec_err_out = omega.astype(np.float32)
+                            goal_pose_out = eoat_cf  # PoseStamped already filled
 
                             err_msg = Vector3Stamped()
                             err_msg.header = self.depth_msg.header
@@ -539,7 +605,9 @@ class Orientation_Control_Node(Node):
                              # Proportional torque τ = K_R * ω
                              K_R = np.diag([self.K_rx, self.K_ry, self.K_rz])
                              tau = (K_R @ omega).astype(np.float32)
-
+                             tau_out = tau.copy()
+                             self._last_tau = tau.copy()
+                            
                              # Saturation
                              #lim = self.torque_limit
                              #tau = np.clip(tau, -lim, lim)
@@ -556,6 +624,8 @@ class Orientation_Control_Node(Node):
                              w.wrench.torque.z = float(tau[2])  # will be ~0 for Z-only error
                              self.pub_wrench_cmd.publish(w)
                             else:
+                                tau_out = np.zeros(3, dtype=np.float32)
+                                self._last_tau = tau_out.copy()
                                 self._publish_zero_wrench()
                             # Mark this cycle as valid
                             measurement_ok = True
@@ -586,10 +656,69 @@ class Orientation_Control_Node(Node):
             )
 
         self.fov_pointcloud_publisher.publish(pcd2_msg_final)
+        # ---- Publish orientation control data bundle ----
+        self.ocd.header = self.depth_msg.header
+        self.ocd.header.frame_id = self.main_camera_frame
+        # Raw point stats
+        self.ocd.num_points_masked = int(num_points_masked)
+        self.ocd.num_points_bbox   = int(num_points_bbox)
+        self.ocd.num_points_crop   = int(num_points_crop)
+        # Visual data
+        # depth image (latest)
+        self.ocd.depth_image = self.depth_msg
+    
+        # cloud after bbox (in main_camera_frame) — reuse the message you just published
+        cloud_bbox_msg = make_pointcloud2(points1, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp)
+        self.ocd.cloud_bbox = cloud_bbox_msg
+
+        # cloud after cylindrical crop (in main_camera_frame)
+        cloud_crop_msg = make_pointcloud2(points2, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp)
+        self.ocd.cloud_crop = cloud_crop_msg
+
+        # Also publish those clouds to your existing topics (keep your current behavior)
+        self.eoat_pointcloud_publisher.publish(cloud_bbox_msg)
+        self.fov_pointcloud_publisher.publish(cloud_crop_msg)
+        # Geometry and pose data (smoothed centroid & normal, and EOAT goal pose if available)
+        self.ocd.centroid = Point(x=float(centroid_out[0]), y=float(centroid_out[1]), z=float(centroid_out[2]))
+        self.ocd.normal   = Vector3(x=float(normal_out[0]),   y=float(normal_out[1]),   z=float(normal_out[2]))
+
+        if goal_pose_out is not None:
+            self.ocd.goal_pose = goal_pose_out
+        else:
+        # Fill a PoseStamped with just the header so field is valid even when not tracking
+            empty_pose = PoseStamped()
+            empty_pose.header = self.ocd.header
+            self.ocd.goal_pose = empty_pose
+        # Control data (rotvec error, torque command, gains)
+        self.ocd.rotvec_error = Vector3(x=float(rotvec_err_out[0]), y=float(rotvec_err_out[1]), z=float(rotvec_err_out[2]))
+
+        # Use the torque we computed this cycle; if none, fall back to last commanded (zeros otherwise)
+        tau_for_msg = tau_out if measurement_ok else self._last_tau
+        self.ocd.torque_cmd = Vector3(x=float(tau_for_msg[0]), y=float(tau_for_msg[1]), z=float(tau_for_msg[2]))
+        self.ocd.k_rx = float(self.K_rx)
+        self.ocd.k_ry = float(self.K_ry)
+        self.ocd.k_rz = float(self.K_rz)
+
+        # Frames
+        self.ocd.main_camera_frame = str(self.main_camera_frame)
+        self.ocd.target_frame      = str(self.target_frame)
+
+        # EMA & safety config
+        self.ocd.ema_enable            = bool(self.ema_enable)
+        self.ocd.ema_tau_s             = float(self.ema_tau)                # note: msg field is *_tau_s
+        self.ocd.no_target_timeout_s   = float(self.no_target_timeout_s)
+        self.ocd.publish_zero_when_lost = bool(self.publish_zero_when_lost)
+
+        if self.save_data:
+            self.bag_orientation_control_data()
+
+        
+        #self.pub_control_data.publish(ocd)      
         # ---- Watchdog / fallback when no valid target this cycle ----
         if not measurement_ok:
             if self.publish_zero_when_lost:
                 self._publish_zero_wrench()
+                self._last_tau = np.zeros(3, dtype=np.float32)
             if (self._last_target_time_s is None) or ((now_s - self._last_target_time_s) > self.no_target_timeout_s):
                 if self._had_target_last_cycle:
                     self.get_logger().warn('No valid target: lost')
@@ -597,7 +726,14 @@ class Orientation_Control_Node(Node):
                 self._ema_centroid = None
                 self._ema_last_t = None
                 self._had_target_last_cycle = False
-
+                
+    def bag_orientation_control_data(self):
+        if self.orientation_control_enabled:
+            self.writer.write(
+                'orientation_control_data',
+                serialize_message(self.ocd),
+                self.get_clock().now().nanoseconds
+            )    
     # Param updates
     def _on_param_update(self, params):
         for p in params:
@@ -653,8 +789,19 @@ class Orientation_Control_Node(Node):
                 self.no_target_timeout_s = float(p.value)
             elif p.name == 'publish_zero_when_lost':
                 self.publish_zero_when_lost = bool(p.value)
+            # Save Data Parameters
+            elif p.name == 'object':
+                self.object = p.value
+            elif p.name == 'save_data':
+                self.save_data = p.value
+            elif p.name == 'data_path':
+                self.data_path = p.value
             elif p.name == 'orientation_control_enabled':
-                self.orientation_control_enabled = bool(p.value)
+               # self.orientation_control_enabled = bool(p.value)
+                if not self.orientation_control_enabled and p.value:
+                    self.enable_orientation_control()
+                elif self.orientation_control_enabled and not p.value:
+                    self.disable_orientation_control()
         return SetParametersResult(successful=True)
 
 
@@ -664,7 +811,7 @@ class Orientation_Control_Node(Node):
 
 def main():
     rclpy.init()
-    node = Orientation_Control_Node()
+    node = OrientationControlNode()
     
     # Use MultiThreadedExecutor with at least 2 threads
     executor = MultiThreadedExecutor()
