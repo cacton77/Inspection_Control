@@ -28,3 +28,6 @@ orientation_controller:
     no_target_timeout: 0.25
     publish_zero_when_lost: True
     orientation_control_enabled: False
+    save_data: False
+    object: ''
+    data_path: '/data/OrientationControlData'
