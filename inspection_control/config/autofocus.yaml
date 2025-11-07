@@ -2,7 +2,6 @@ autofocus:
   ros__parameters:
     autofocus_enabled: false
     control_rate: 10.0
-    data_path: /data/autofocus
     ddfv_threshold: -0.2
     dfv_threshold: 0.2
     ehc_distance: 0.15
