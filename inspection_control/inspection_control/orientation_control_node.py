@@ -389,8 +389,8 @@ class OrientationControlNode(Node):
         stamp = self.depth_msg.header.stamp
         now_s = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
         measurement_ok = False
-        num_points_bbox = 0
-        num_points_crop = 0
+        #num_points_bbox = 0
+        #num_points_crop = 0
 
         centroid_out = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         normal_out   = np.array([0.0, 0.0, 1.0], dtype=np.float32)
@@ -414,8 +414,15 @@ class OrientationControlNode(Node):
         # Build mask
         valid = np.isfinite(depth_m) & (depth_m > 0.0)
         mask = valid & (depth_m >= self.dmap_filter_min) & (depth_m <= self.dmap_filter_max)
-        num_points_masked = int(np.count_nonzero(mask))
+      #  num_points_masked = int(np.count_nonzero(mask))
 
+        # Build filtered depth (32FC1) - invalid pixels set to NaN
+        depth_filtered = depth_m.copy()
+        depth_filtered[~mask] = np.nan
+
+        # Convert to ROS
+        depth_filtered_msg = self.bridge.cv2_to_imgmsg(depth_filtered.astype(np.float32), encoding='32FC1')
+        depth_filtered_msg.header = self.depth_msg.header
         # Defaults for pointcloud outputs
         points1 = np.zeros((0, 3), dtype=np.float32)
         points2 = np.zeros((0, 3), dtype=np.float32)
@@ -492,7 +499,7 @@ class OrientationControlNode(Node):
                         pts_bbox_out = np.zeros((0, 3), dtype=np.float32)
 
                     points1 = pts_bbox_out
-                    num_points_bbox = int(points1.shape[0])
+                    #num_points_bbox = int(points1.shape[0])
                     if pts_bbox_out.shape[0] > 0:
                         Xc, Yc, Zc = pts_bbox_out[:, 0], pts_bbox_out[:, 1], pts_bbox_out[:, 2]
                         r2 = Xc*Xc + Yc*Yc
@@ -503,7 +510,7 @@ class OrientationControlNode(Node):
                         
                         pts_crop = np.ascontiguousarray(pts_bbox_out[sel_crop])
                         points2 = pts_crop
-                        num_points_crop = int(pts_crop.shape[0])
+                        #num_points_crop = int(pts_crop.shape[0])
 
                         # Compute PCA normal 
                         if pts_crop.shape[0] >= 10:
@@ -660,12 +667,13 @@ class OrientationControlNode(Node):
         self.ocd.header = self.depth_msg.header
         self.ocd.header.frame_id = self.main_camera_frame
         # Raw point stats
-        self.ocd.num_points_masked = int(num_points_masked)
-        self.ocd.num_points_bbox   = int(num_points_bbox)
-        self.ocd.num_points_crop   = int(num_points_crop)
+        #self.ocd.num_points_masked = int(num_points_masked)
+        #self.ocd.num_points_bbox   = int(num_points_bbox)
+        #self.ocd.num_points_crop   = int(num_points_crop)
         # Visual data
         # depth image (latest)
         self.ocd.depth_image = self.depth_msg
+        self.ocd.depth_filtered_image = depth_filtered_msg
     
         # cloud after bbox (in main_camera_frame) — reuse the message you just published
         cloud_bbox_msg = make_pointcloud2(points1, frame_id=self.main_camera_frame, stamp=self.depth_msg.header.stamp)
