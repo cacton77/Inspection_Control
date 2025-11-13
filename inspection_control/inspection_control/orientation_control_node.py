@@ -29,6 +29,7 @@ from rosbag2_py import SequentialWriter, StorageOptions, ConverterOptions, Topic
 from rclpy.serialization import serialize_message
 
 from tf2_ros import Buffer, TransformListener, TransformException
+from inspection_control.debag_orientation_data import debag
 
 
 def _quat_to_R_xyzw(x, y, z, w):
@@ -327,7 +328,7 @@ class OrientationControlNode(Node):
         if self.save_data:
             self.writer.close()
             self.get_logger().info(f'Closed bag file.')  
-            #debag(self.storage_options.uri)
+            debag(self.storage_options.uri)
             # Update parameters or state as needed
 
     def _publish_zero_wrench(self):
