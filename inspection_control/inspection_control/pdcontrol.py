@@ -183,9 +183,13 @@ class OrientationControlNode(Node):
         self.declare_parameter('ema_enable', True)     # on/off
         self.declare_parameter('ema_tau', 0.25)        # seconds; try 0.2–0.5 s
         # Orientation P gains (Nm/rad) in main_camera_frame
-        self.declare_parameter('Kp', 200.0)   # torque gain about camera X
+        self.declare_parameter('K_rx', 200.0)   # torque gain about camera X
+        self.declare_parameter('K_ry', 200.0)   # torque gain about camera Y
+        self.declare_parameter('K_rz', 200.0)   # torque gain about camera Z (used by SO3 error)
         # Derivative gains for PD control                                         # <<< NEW
-        self.declare_parameter('Kd', 5.0)    # derivative gain about camera X  # <<< NEW
+        self.declare_parameter('Kd_rx', 5.0)    # derivative gain about camera X  # <<< NEW
+        self.declare_parameter('Kd_ry', 5.0)    # derivative gain about camera Y  # <<< NEW
+        self.declare_parameter('Kd_rz', 0.5)    # derivative gain about camera Z  # <<< NEW
         self.declare_parameter('no_target_timeout_s', 0.25)  # after this, reset EMA & declare "lost"
         self.declare_parameter('publish_zero_when_lost', True)
         self.declare_parameter('orientation_control_enabled', False)
@@ -225,8 +229,12 @@ class OrientationControlNode(Node):
         self.bbox_max = np.array([ float('inf'),  float('inf'),  float('inf')], dtype=float)  # [xmax, ymax, zmax]
         self.main_camera_frame = self.get_parameter('main_camera_frame').get_parameter_value().string_value
 
-        self.Kp = float(self.get_parameter('Kp').value)
-        self.Kd = float(self.get_parameter('Kd').value)  # <<< NEW
+        self.K_rx = float(self.get_parameter('K_rx').value)
+        self.K_ry = float(self.get_parameter('K_ry').value)
+        self.K_rz = float(self.get_parameter('K_rz').value)
+        self.Kd_rx = float(self.get_parameter('Kd_rx').value)  # <<< NEW
+        self.Kd_ry = float(self.get_parameter('Kd_ry').value)  # <<< NEW
+        self.Kd_rz = float(self.get_parameter('Kd_rz').value)  # <<< NEW
         # self.torque_limit = float(self.get_parameter('torque_limit').value)
         self.no_target_timeout_s = float(self.get_parameter('no_target_timeout_s').value)
         self.publish_zero_when_lost = bool(self.get_parameter('publish_zero_when_lost').value)
@@ -594,8 +602,8 @@ class OrientationControlNode(Node):
                             self._last_rotvec_err = omega.copy()                                   # <<< NEW
 
                             # Elementwise PD: τ = Kp*ω + Kd*ω̇                                      # <<< NEW
-                            Kp_vec = np.array([self.Kp,  self.Kp,  self.Kp],  dtype=np.float32)  # <<< NEW
-                            Kd_vec = np.array([self.Kd, self.Kd, self.Kd], dtype=np.float32)  # <<< NEW
+                            Kp_vec = np.array([self.K_rx,  self.K_ry,  self.K_rz],  dtype=np.float32)  # <<< NEW
+                            Kd_vec = np.array([self.Kd_rx, self.Kd_ry, self.Kd_rz], dtype=np.float32)  # <<< NEW
                             tau = (Kp_vec * omega + Kd_vec * domega).astype(np.float32)                # <<< NEW
 
                             tau_out = tau.copy()                                                     # <<< NEW
@@ -667,8 +675,9 @@ class OrientationControlNode(Node):
         # Use the torque we computed this cycle; if none, fall back to last commanded (zeros otherwise)
         tau_for_msg = tau_out if measurement_ok else self._last_tau
         self.ocd.torque_cmd = Vector3(x=float(tau_for_msg[0]), y=float(tau_for_msg[1]), z=float(tau_for_msg[2]))
-        self.ocd.k_p = float(self.Kp)
-        self.ocd.k_d = float(self.Kd)
+        self.ocd.k_rx = float(self.K_rx)
+        self.ocd.k_ry = float(self.K_ry)
+        self.ocd.k_rz = float(self.K_rz)
 
         # Frames
         self.ocd.main_camera_frame = str(self.main_camera_frame)
@@ -749,10 +758,18 @@ class OrientationControlNode(Node):
                 self.ema_enable = bool(p.value)
             elif p.name == 'ema_tau':
                 self.ema_tau = max(1e-3, float(p.value))
-            elif p.name == 'Kp':
-                self.Kp = float(p.value)
-            elif p.name == 'Kd':
-                self.Kd = float(p.value)
+            elif p.name == 'K_rx':
+                self.K_rx = float(p.value)
+            elif p.name == 'K_ry':
+                self.K_ry = float(p.value)
+            elif p.name == 'K_rz':
+                self.K_rz = float(p.value)
+            elif p.name == 'Kd_rx':                                   # <<< NEW
+                self.Kd_rx = float(p.value)                           # <<< NEW
+            elif p.name == 'Kd_ry':                                   # <<< NEW
+                self.Kd_ry = float(p.value)                           # <<< NEW
+            elif p.name == 'Kd_rz':                                   # <<< NEW
+                self.Kd_rz = float(p.value)                           # <<< NEW
             # elif p.name == 'torque_limit':
             #     self.torque_limit = float(p.value)
             elif p.name == 'no_target_timeout_s':

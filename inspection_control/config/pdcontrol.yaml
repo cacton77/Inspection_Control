@@ -1,4 +1,4 @@
-orientation_controller:
+pd_controller:
   ros__parameters:
     depth_topic: /camera/d405_camera/depth/image_rect_raw
     camera_info_topic: /camera/d405_camera/depth/camera_info #intrinsics info
@@ -21,9 +21,13 @@ orientation_controller:
     standoff_m: 0.10 # standoff_value for fixed standoff mode
     standoff_mode: euclidean
     ema_enable: True
-    ema_tau: 0.5
-    Kp: 200.7
-    Kd: 72.0  
+    ema_tau: 0.25
+    K_rx: 1193.7
+    K_ry: 1193.7
+    K_rz: 1193.7
+    Kd_rx: 72.0
+    Kd_ry: 72.0
+    Kd_rz: 72.0  
     no_target_timeout: 0.25
     publish_zero_when_lost: True
     orientation_control_enabled: False

@@ -164,27 +164,6 @@ plt.axvline(0, color='k', linewidth=0.8)  # imaginary axis
 plt.grid(True)
 plt.show()
 
-# Poles and Zeros
-#plt.figure(figsize=(10, 8))
-#poles, zeros = control.pzmap(T, plot=True, grid=True)
-#plt.title('Pole-Zero Map of Closed-Loop System')
-#plt.xlabel('Real Axis (seconds⁻¹)')
-#plt.ylabel('Imaginary Axis (seconds⁻¹)')
-#plt.show()
-
-# Simulate impulse response
-#t, y = control.impulse_response(T)
-
-# figure for x-axis response
-#plt.figure()
-#plt.plot(t, y, label='Angular Displacement (rad)')
-#plt.title('Closed-Loop Impulse Response (X-axis)')
-#plt.xlabel('Time (s)')
-#plt.ylabel('Displacement (rad)')
-#plt.grid()
-#plt.legend()
-#plt.show()
-
 import numpy as np
 import control
 import matplotlib.pyplot as plt
@@ -236,6 +215,30 @@ print(f"\nCalculated Parameters:")
 print(f"  Damping ratio ζ: {zeta:.3f}")
 print(f"  Natural frequency ωn: {wn:.3f} rad/s")
 print(f"  Dominant poles: {p1:.3f}, {p2:.3f}")
+
+def gain_from_lengths(G, s_desired):
+    """
+    Compute root-locus gain using:
+    K = product(|s - p_i|) / product(|s - z_j|)
+    """
+    poles = control.poles(G)
+    zeros = control.zeros(G)
+    
+    # pole distances
+    pole_lengths = np.prod([abs(s_desired - p) for p in poles])
+    
+    # zero distances
+    if len(zeros) > 0:
+        zero_lengths = np.prod([abs(s_desired - z) for z in zeros])
+    else:
+        zero_lengths = 1  # no zeros => denominator = 1
+    
+    K = pole_lengths / zero_lengths
+    return K
+
+# Example usage:
+K_mag = gain_from_lengths(G, p1)   # p1 = your desired closed-loop pole
+print("Gain K =", K_mag)
 
 # equations to solve for [Kd, Kp, Ki, p3]
 def equations(vars):

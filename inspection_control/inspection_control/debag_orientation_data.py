@@ -32,12 +32,52 @@ def generate_orientation_plots(csv_filepath):
     axes[0].set_xlabel('Time (s)')
     axes[0].set_ylabel('Error (rad)')
     axes[0].legend()
+    # Add torque commands
+    axes[1].plot(timestamps_sec, df['torque_x'], label='Torque X')
+    axes[1].plot(timestamps_sec, df['torque_y'], label='Torque Y')
+    axes[1].plot(timestamps_sec, df['torque_z'], label='Torque Z')
+    axes[1].set_title('Torque Commands Over Time')
+    axes[1].set_xlabel('Time (s)')
+    axes[1].set_ylabel('Torque (Nm)')
+    axes[1].legend()
     plt.tight_layout()
 
     plot_filename = csv_path.parent / f'{csv_path.stem}_analysis.png'
     plt.savefig(plot_filename, dpi=150)
     plt.close()
     print(f"Plot saved to {plot_filename}")
+
+def depth_to_colormap(depth_image, colormap=cv2.COLORMAP_TURBO, depth_min=None, depth_max=None):
+    """
+    Convert a single depth image (float) to a colormap image (BGR uint8).
+    
+    Args:
+        depth_image: numpy array with float depth values
+        colormap: OpenCV colormap constant
+    
+    Returns:
+        BGR uint8 image suitable for video writing
+    """
+    # Handle invalid values (NaN, inf)
+    depth_clean = np.nan_to_num(depth_image, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Normalize to 0-255 range
+    if not depth_min: depth_min = np.min(depth_clean[depth_clean > 0])  # Ignore zeros/invalid
+    if not depth_max: depth_max = np.max(depth_clean)
+    
+    if depth_max > depth_min:
+        normalized = ((depth_clean - depth_min) / (depth_max - depth_min) * 255).astype(np.uint8)
+    else:
+        normalized = np.zeros_like(depth_clean, dtype=np.uint8)
+    
+    # Where depth_image is zero, make colored image black
+    mask_filtered = (depth_image == np.nan)
+
+    # Apply colormap
+    colored = cv2.applyColorMap(normalized, colormap)
+    colored[mask_filtered] = [0, 0, 0]  # Black for invalid depth
+    
+    return colored
 
 
 def debag(bag_file):
@@ -60,14 +100,18 @@ def debag(bag_file):
      # Get first message to determine video properties
     (topic, data, t) = reader.read_next()
     first_msg = deserialize_message(data, OrientationControlData)
-    # first_image = bridge.compressed_imgmsg_to_cv2(
-    #     first_msg.depth_image, desired_encoding='bgr8')
+    first_depth_image = bridge.imgmsg_to_cv2(
+        first_msg.depth_image, desired_encoding='passthrough')
+    first_depth_filtered_image = bridge.imgmsg_to_cv2(
+        first_msg.depth_filtered_image, desired_encoding='passthrough')
 
-    # # Initialize video writer
-    # out = cv2.VideoWriter(str(bag_file.with_suffix('.avi')),
-    #                       fourcc, 20.0, (first_image.shape[1], first_image.shape[0]))
-    # out.write(first_image)
-
+    # Initialize video writer
+    depth_out = cv2.VideoWriter(str(output_dir) + f"/{bag_file.stem}_depth.avi",
+                          fourcc, 20.0, (first_depth_image.shape[1], first_depth_image.shape[0]))
+    depth_out.write(depth_to_colormap(first_depth_image))
+    depth_filtered_out = cv2.VideoWriter(str(output_dir) + f"/{bag_file.stem}_depth_filtered.avi",
+                          fourcc, 20.0, (first_depth_filtered_image.shape[1], first_depth_filtered_image.shape[0]))
+    depth_filtered_out.write(depth_to_colormap(first_depth_filtered_image))
     # Initialize CSV writer
     csv_file = open(bag_file.with_suffix('.csv'), 'w', newline='')
     csv_writer = csv.writer(csv_file)
@@ -135,12 +179,19 @@ def debag(bag_file):
         # Deserialize Message
         msg = deserialize_message(data, OrientationControlData)
 
-        # try:
-        #     cv_image = bridge.compressed_imgmsg_to_cv2(
-        #         msg.depth_image, desired_encoding='bgr8')
-        #     out.write(cv_image)
-        # except CvBridgeError as e:
-        #     print(e)
+        try:
+            cv_image = bridge.imgmsg_to_cv2(
+                msg.depth_image, desired_encoding='passthrough')
+            depth_out.write(depth_to_colormap(cv_image))
+        except CvBridgeError as e:
+            print(e)
+
+        try:
+            cv_filtered_image = bridge.imgmsg_to_cv2(
+                msg.depth_filtered_image, desired_encoding='passthrough')
+            depth_filtered_out.write(depth_to_colormap(cv_filtered_image, depth_min=msg.dmap_filter_min, depth_max=msg.dmap_filter_max))
+        except CvBridgeError as e:
+            print(e)
 
         # Write data to CSV
         csv_writer.writerow([

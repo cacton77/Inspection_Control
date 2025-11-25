@@ -82,7 +82,7 @@ def generate_focus_plots(csv_filepath):
         axes[0].axvline(x=max_mode_switch_time, color='g',
                         linestyle='--', label='Max Found')
     axes[0].set_xlabel('Time (s)', fontsize=11)
-    axes[0].set_ylabel('Distance Traveled (m)', fontsize=11)
+    axes[0].set_ylabel('Distance Traveled (m)', fontscsv_filepathize=11)
     axes[0].set_title('Distance Traveled vs Time', fontsize=12)
     axes[0].grid(True, alpha=0.3)
 
