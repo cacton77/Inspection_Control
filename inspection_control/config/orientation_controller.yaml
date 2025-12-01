@@ -22,8 +22,9 @@ orientation_controller:
     standoff_mode: euclidean
     ema_enable: True
     ema_tau: 0.5
-    Kp: 200.7
-    Kd: 72.0  
+    Kp: 914.34
+    Ki: 90.01
+    Kd: 142.2 
     no_target_timeout: 0.25
     publish_zero_when_lost: True
     orientation_control_enabled: False
