@@ -185,6 +185,7 @@ class OrientationControlNode(Node):
         # Orientation P gains (Nm/rad) in main_camera_frame
         self.declare_parameter('Kp', 200.0)   # torque gain about camera X
         # Derivative gains for PD control                                         # <<< NEW
+        self.declare_parameter('Ki', 5.0)    # derivative gain about camera Z  # <<< NEW
         self.declare_parameter('Kd', 5.0)    # derivative gain about camera X  # <<< NEW
         self.declare_parameter('no_target_timeout_s', 0.25)  # after this, reset EMA & declare "lost"
         self.declare_parameter('publish_zero_when_lost', True)
@@ -226,6 +227,7 @@ class OrientationControlNode(Node):
         self.main_camera_frame = self.get_parameter('main_camera_frame').get_parameter_value().string_value
 
         self.Kp = float(self.get_parameter('Kp').value)
+        self.Ki = float(self.get_parameter('Ki').value)    # integral gain about camera Z  # <<< NEW
         self.Kd = float(self.get_parameter('Kd').value)  # <<< NEW
         # self.torque_limit = float(self.get_parameter('torque_limit').value)
         self.no_target_timeout_s = float(self.get_parameter('no_target_timeout_s').value)
@@ -299,7 +301,8 @@ class OrientationControlNode(Node):
         self._last_tau = np.zeros(3, dtype=np.float32)
         # PD state: last rotation-vector error and timestamp                # <<< NEW
         self._last_rotvec_err = None                                       # <<< NEW
-        self._last_err_t = None                                            # <<< NEW
+        self._last_err_t = None  
+        self._int_rotvec_err = np.zeros(3, dtype=np.float32)                                           # <<< NEW
 
         self.get_logger().info(
             'Background remover running:\n'
@@ -669,6 +672,9 @@ class OrientationControlNode(Node):
         self.ocd.torque_cmd = Vector3(x=float(tau_for_msg[0]), y=float(tau_for_msg[1]), z=float(tau_for_msg[2]))
         self.ocd.k_p = float(self.Kp)
         self.ocd.k_d = float(self.Kd)
+        if hasattr(self.ocd, 'k_i'):                             # <<< NEW
+            self.ocd.k_i = float(self.Ki)
+
 
         # Frames
         self.ocd.main_camera_frame = str(self.main_camera_frame)
@@ -698,6 +704,7 @@ class OrientationControlNode(Node):
                 # Reset PD error history when we lose the target         # <<< NEW
                 self._last_rotvec_err = None                              # <<< NEW
                 self._last_err_t = None                                   # <<< NEW
+                self._int_rotvec_err = np.zeros(3, dtype=np.float32)     # <<< NEW
 
     def bag_orientation_control_data(self):
         if self.orientation_control_enabled:
@@ -751,6 +758,8 @@ class OrientationControlNode(Node):
                 self.ema_tau = max(1e-3, float(p.value))
             elif p.name == 'Kp':
                 self.Kp = float(p.value)
+            elif p.name == 'Ki':
+                self.Ki = float(p.value)
             elif p.name == 'Kd':
                 self.Kd = float(p.value)
             # elif p.name == 'torque_limit':
