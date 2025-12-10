@@ -590,16 +590,26 @@ class OrientationControlNode(Node):
                             if self._last_err_t is not None and self._last_rotvec_err is not None:  # <<< NEW
                                 dt_ctrl = max(1e-6, now_s - self._last_err_t)                      # <<< NEW
                                 domega = (omega - self._last_rotvec_err) / dt_ctrl                 # <<< NEW
-                            else:                                                                   # <<< NEW
+                            else:  
+                                dt_ctrl = 0.0                                                                 # <<< NEW
                                 domega = np.zeros(3, dtype=np.float32)                             # <<< NEW
 
                             self._last_err_t = now_s                                               # <<< NEW
                             self._last_rotvec_err = omega.copy()                                   # <<< NEW
+                             # Integral of error
+                            if dt_ctrl > 0.0:
+                                self._int_rotvec_err += omega * dt_ctrl
+                                # Optional: simple anti-windup clamp
+                                int_limit = 1e3   # tune as needed
+                                self._int_rotvec_err = np.clip(
+                                    self._int_rotvec_err, -int_limit, int_limit
+                                )
 
                             # Elementwise PD: τ = Kp*ω + Kd*ω̇                                      # <<< NEW
                             Kp_vec = np.array([self.Kp,  self.Kp,  self.Kp],  dtype=np.float32)  # <<< NEW
+                            Ki_vec = np.array([self.Ki, self.Ki, self.Ki], dtype=np.float32)   # <<< NEW
                             Kd_vec = np.array([self.Kd, self.Kd, self.Kd], dtype=np.float32)  # <<< NEW
-                            tau = (Kp_vec * omega + Kd_vec * domega).astype(np.float32)                # <<< NEW
+                            tau = (Kp_vec * omega + Ki_vec * self._int_rotvec_err + Kd_vec * domega).astype(np.float32)                # <<< NEW
 
                             tau_out = tau.copy()                                                     # <<< NEW
                             self._last_tau = tau.copy()                                              # <<< NEW
