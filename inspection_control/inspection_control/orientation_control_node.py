@@ -299,10 +299,17 @@ class OrientationControlNode(Node):
 
         # keep a “last torque” handy so we can report it in the bundle
         self._last_tau = np.zeros(3, dtype=np.float32)
+        self._last_force = np.zeros(3, dtype=np.float32)   # <<< NEW
         # PD state: last rotation-vector error and timestamp                # <<< NEW
         self._last_rotvec_err = None                                       # <<< NEW
         self._last_err_t = None  
         self._int_rotvec_err = np.zeros(3, dtype=np.float32)                                           # <<< NEW
+        
+
+        # PID state for force (position) control                         # <<< NEW FOR FORCE PID >>>
+        self._last_pos_err = None                                       # <<< NEW FOR FORCE PID >>>
+        self._last_pos_t = None                                         # <<< NEW FOR FORCE PID >>>
+        self._int_pos_err = np.zeros(3, dtype=np.float32)               # <<< NEW FOR FORCE PID >>>
 
         self.get_logger().info(
             'Background remover running:\n'
@@ -409,7 +416,7 @@ class OrientationControlNode(Node):
         goal_pose_out = None  # will become a PoseStamped if we have one
         rotvec_err_out = np.zeros(3, dtype=np.float32)
         tau_out = np.zeros(3, dtype=np.float32)
-
+        force_out = np.zeros(3, dtype=np.float32)
         # Convert ROS Image -> numpy
         depth = self.bridge.imgmsg_to_cv2(self.depth_msg, desired_encoding='passthrough')
 
@@ -585,6 +592,33 @@ class OrientationControlNode(Node):
                         self.pub_z_rotvec_err.publish(err_msg)
 
                         if self.orientation_control_enabled:
+                            # ================== FORCE PID (translational) ====================  # <<< NEW FOR FORCE PID >>>
+                            # Use p_des_cf as position error vector in main_camera_frame
+                            pos_err = p_des_cf.astype(np.float32)
+
+                            if self._last_pos_t is not None and self._last_pos_err is not None:
+                                dt_pos = max(1e-6, now_s - self._last_pos_t)
+                                dpos = (pos_err - self._last_pos_err) / dt_pos
+                            else:
+                                dt_pos = 0.0
+                                dpos = np.zeros(3, dtype=np.float32)
+
+                            self._last_pos_t = now_s
+                            self._last_pos_err = pos_err.copy()
+
+                            # Integrate position error
+                            if dt_pos > 0.0:
+                                self._int_pos_err += pos_err * dt_pos
+
+                            Kp_lin = np.array([self.Kp, self.Kp, self.Kp], dtype=np.float32)
+                            Kd_lin = np.array([self.Kd, self.Kd, self.Kd], dtype=np.float32)
+                            Ki_lin = np.array([self.Ki, self.Ki, self.Ki], dtype=np.float32)
+
+                            force = (Kp_lin * pos_err +
+                                     Kd_lin * dpos +
+                                     Ki_lin * self._int_pos_err).astype(np.float32)
+                            force_out = force.copy()
+                            self._last_force = force.copy()                                            # <<< NEW FOR FORCE PID >>>
                             # --- PD control on rotation-vector error omega ---   # <<< NEW
                             # Compute error derivative (finite difference)         # <<< NEW
                             if self._last_err_t is not None and self._last_rotvec_err is not None:  # <<< NEW
@@ -622,16 +656,18 @@ class OrientationControlNode(Node):
                             w = WrenchStamped()
                             w.header = self.depth_msg.header
                             w.header.frame_id = self.main_camera_frame
-                            w.wrench.force.x = 0.0
-                            w.wrench.force.y = 0.0
-                            w.wrench.force.z = 0.0
+                            w.wrench.force.x = float(force[0])
+                            w.wrench.force.y = float(force[1])
+                            w.wrench.force.z = float(force[2])
                             w.wrench.torque.x = float(tau[0])
                             w.wrench.torque.y = float(tau[1])
                             w.wrench.torque.z = float(tau[2])  # will be ~0 for Z-only error
                             self.pub_wrench_cmd.publish(w)
                         else:
                             tau_out = np.zeros(3, dtype=np.float32)
+                            force_out = np.zeros(3, dtype=np.float32)   # <<< NEW
                             self._last_tau = tau_out.copy()
+                            self._last_force = force_out.copy()
                             self._publish_zero_wrench()
 
                         # Mark this cycle as valid
@@ -680,6 +716,10 @@ class OrientationControlNode(Node):
         # Use the torque we computed this cycle; if none, fall back to last commanded (zeros otherwise)
         tau_for_msg = tau_out if measurement_ok else self._last_tau
         self.ocd.torque_cmd = Vector3(x=float(tau_for_msg[0]), y=float(tau_for_msg[1]), z=float(tau_for_msg[2]))
+        
+        force_for_msg = force_out if measurement_ok else self._last_force    # <<< NEW
+        self.ocd.force_cmd = Vector3(x=float(force_for_msg[0]), y=float(force_for_msg[1]), z=float(force_for_msg[2]))  # <<< NEW
+
         self.ocd.k_p = float(self.Kp)
         self.ocd.k_d = float(self.Kd)
         if hasattr(self.ocd, 'k_i'):                             # <<< NEW
@@ -704,6 +744,7 @@ class OrientationControlNode(Node):
             if self.publish_zero_when_lost:
                 self._publish_zero_wrench()
                 self._last_tau = np.zeros(3, dtype=np.float32)
+                self._last_force = np.zeros(3, dtype=np.float32)   # <<< NEW
             if (self._last_target_time_s is None) or ((now_s - self._last_target_time_s) > self.no_target_timeout_s):
                 if self._had_target_last_cycle:
                     self.get_logger().warn('No valid target: lost')
@@ -715,6 +756,10 @@ class OrientationControlNode(Node):
                 self._last_rotvec_err = None                              # <<< NEW
                 self._last_err_t = None                                   # <<< NEW
                 self._int_rotvec_err = np.zeros(3, dtype=np.float32)     # <<< NEW
+                self._last_pos_err = None                        # <<< NEW FOR FORCE PID >>>
+                self._last_pos_t = None                          # <<< NEW FOR FORCE PID >>>
+                self._int_pos_err = np.zeros(3, dtype=np.float32)  # <<< NEW FOR FORCE PID >>>
+
 
     def bag_orientation_control_data(self):
         if self.orientation_control_enabled:
