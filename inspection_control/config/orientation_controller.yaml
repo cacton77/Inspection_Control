@@ -31,3 +31,5 @@ orientation_controller:
     save_data: False
     object: ''
     data_path: '/data/OrientationControlData'
+    mass: 10.0  # mass of the object in kg for force control   # <<< NEW
+    inertia: 10.0 # rotational inertia for torque control   # <<< NEW
