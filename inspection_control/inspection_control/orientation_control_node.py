@@ -655,7 +655,7 @@ class OrientationControlNode(Node):
                             self._last_tau = tau.copy()                                              # <<< NEW
                             Inertia_A = self.inertia + self.mass * d**2 # rotational inertia for torque control
                             force = (self.mass/Inertia_A) * np.cross(tau,cen_s)  # simple proportional model for force command based on torque command
-                            tau_cam = (self.inertia/Inertia_A) * tau  # adjust torque command based on rotational inertia
+                            tau_cam = (self.inertia/Inertia_A) * tau  # torque about camera origin
                             # Saturation (optional)
                             # lim = self.torque_limit
                             # tau = np.clip(tau, -lim, lim)
