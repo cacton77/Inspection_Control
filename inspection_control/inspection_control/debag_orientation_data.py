@@ -25,6 +25,7 @@ def generate_orientation_plots(csv_filepath):
     timestamps_sec = (df['timestamp'] - df['timestamp'].iloc[0]) / 1e9
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 6))
+   # fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     axes[0].plot(timestamps_sec, df['error_x'], label='Error X')
     axes[0].plot(timestamps_sec, df['error_y'], label='Error Y')
     axes[0].plot(timestamps_sec, df['error_z'], label='Error Z')
@@ -40,6 +41,52 @@ def generate_orientation_plots(csv_filepath):
     axes[1].set_xlabel('Time (s)')
     axes[1].set_ylabel('Torque (Nm)')
     axes[1].legend()
+    # --- Rotational error (rotvec_error) ---
+  #  ax = axes[0, 0]
+   # ax.plot(timestamps_sec, df['error_x'], label='Error X')
+  #  ax.plot(timestamps_sec, df['error_y'], label='Error Y')
+  #  ax.plot(timestamps_sec, df['error_z'], label='Error Z')
+    # ax.set_title('Rotational Error Over Time')
+    # ax.set_xlabel('Time (s)')
+    # ax.set_ylabel('Error (rad)')
+    # ax.legend()
+    # ax.grid(True)
+
+    # # --- Torque commands ---
+    # ax = axes[0, 1]
+    # ax.plot(timestamps_sec, df['torque_x'], label='Torque X')
+    # ax.plot(timestamps_sec, df['torque_y'], label='Torque Y')
+    # ax.plot(timestamps_sec, df['torque_z'], label='Torque Z')
+    # ax.set_title('Torque Commands Over Time')
+    # ax.set_xlabel('Time (s)')
+    # ax.set_ylabel('Torque (Nm)')
+    # ax.legend()
+    # ax.grid(True)
+
+    # # --- Position error (pos_error) ---
+    # ax = axes[1, 0]
+    # ax.plot(timestamps_sec, df['pos_error_x'], label='pos_err X')
+    # ax.plot(timestamps_sec, df['pos_error_y'], label='pos_err Y')
+    # ax.plot(timestamps_sec, df['pos_error_z'], label='pos_err Z')
+    # ax.set_title('Position Error (p_des_cf) Over Time')
+    # ax.set_xlabel('Time (s)')
+    # ax.set_ylabel('Position Error (m)')
+    # ax.legend()
+    # ax.grid(True)
+
+    # # --- Force commands ---
+    # ax = axes[1, 1]
+    # ax.plot(timestamps_sec, df['force_x'], label='Force X')
+    # ax.plot(timestamps_sec, df['force_y'], label='Force Y')
+    # ax.plot(timestamps_sec, df['force_z'], label='Force Z')
+    # ax.set_title('Force Commands Over Time')
+    # ax.set_xlabel('Time (s)')
+    # ax.set_ylabel('Force (N)')
+    # ax.legend()
+    # ax.grid(True)
+
+
+
     plt.tight_layout()
 
     plot_filename = csv_path.parent / f'{csv_path.stem}_analysis.png'
@@ -140,9 +187,15 @@ def debag(bag_file):
         'torque_x',
         'torque_y',
         'torque_z',
-        'k_rx',
-        'k_ry',
-        'k_rz',
+       # 'force_x',          # <<< NEW
+       # 'force_y',          # <<< NEW
+       # 'force_z',          # <<< NEW
+      #  'pos_error_x',      # <<< NEW
+       # 'pos_error_y',      # <<< NEW
+      #  'pos_error_z',      # <<< NEW
+        'k_p',
+        'k_d',
+        'k_i',
     ])
 
     csv_writer.writerow([
@@ -168,9 +221,15 @@ def debag(bag_file):
         first_msg.torque_cmd.x,
         first_msg.torque_cmd.y,
         first_msg.torque_cmd.z,
-        first_msg.k_rx,
-        first_msg.k_ry,
-        first_msg.k_rz,
+       # first_msg.force_cmd.x,        # <<< NEW
+      #  first_msg.force_cmd.y,        # <<< NEW
+      #  first_msg.force_cmd.z,        # <<< NEW
+      #  first_msg.pos_error.x,        # <<< NEW
+      #  first_msg.pos_error.y,        # <<< NEW
+      #  first_msg.pos_error.z,        # <<< NEW
+        first_msg.k_p,
+        first_msg.k_d,
+        first_msg.k_i,
     ])
 
     while reader.has_next():
@@ -217,9 +276,15 @@ def debag(bag_file):
             msg.torque_cmd.x,
             msg.torque_cmd.y,
             msg.torque_cmd.z,
-            msg.k_rx,
-            msg.k_ry,
-            msg.k_rz,
+           # msg.force_cmd.x,        # <<< NEW
+           # msg.force_cmd.y,        # <<< NEW
+           # msg.force_cmd.z,        # <<< NEW
+           # msg.pos_error.x,        # <<< NEW
+          #  msg.pos_error.y,        # <<< NEW
+          #  msg.pos_error.z,        # <<< NEW
+            msg.k_p,
+            msg.k_d,
+            msg.k_i,
         ])
 
     # Close CSV file and video
