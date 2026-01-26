@@ -66,11 +66,11 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True
     )
-    joy_node = Node(
-        package='joy',
-        executable="joy_node",
-        name='joy'
-    )
+    # joy_node = Node(
+    #     package='joy',
+    #     executable="joy_node",
+    #     name='joy'
+    # )
 
     autofocus_node = Node(
         package="inspection_control",
@@ -111,7 +111,7 @@ def generate_launch_description():
         orientation_control_node,
         autofocus_config_file,
         autofocus_node,
-        joy_node,
+        # joy_node,
         teleop_config_file,
         admittance_config_file,
         teleop_node,
